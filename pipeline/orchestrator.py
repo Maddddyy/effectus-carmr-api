@@ -151,7 +151,7 @@ async def run_pipeline(
 
     # -- STAGE 3: Assumptions -----------------------------------------------------
     yield sse("stage_start", {"stage": "assumptions", "stage_num": 3, "total_stages": 8,
-                              "message": "Effectus Research: argumentation analysis - extracting defeasible premises (max 5, parent-child hierarchy)..."})
+                              "message": "Effectus Research: argumentation analysis - extracting highest-relevance defeasible premises (max 5, ranked by governance consequence)..."})
 
     yield sse("thinking", {"stage": "assumptions",
                            "message": "Effectus Research: applying four argumentation tests to draft premises..."})
@@ -163,9 +163,8 @@ async def run_pipeline(
     yield sse("quality_check", {"stage": "assumptions", "quality_score": a_score,
                                  "issues": a_issues, "passed": a_score >= QUALITY_THRESHOLD})
 
-    # Research Point 2: adversarially test each PARENT assumption
-    parent_assumptions = [a for a in assumptions_list if not a.get("parentId")]
-    for a in parent_assumptions[:2]:  # Max 2 research calls
+    # Research Point 2: adversarially test the top 2 highest-relevance assumptions
+    for a in assumptions_list[:2]:  # Max 2 research calls - top by governance rank
         query = f"{a.get('statement', '')[:80]}..."
         yield sse("research", {"stage": "assumptions", "query": query, "status": "searching..."})
         try:
@@ -201,8 +200,7 @@ async def run_pipeline(
     yield sse("stage_complete", {"stage": "assumptions", "quality_score": a_score,
                                   "partial_result": {
                                       "count": len(carmr.assumptions),
-                                      "parents": [a.id for a in carmr.assumptions if not a.parentId],
-                                      "children": [a.id for a in carmr.assumptions if a.parentId],
+                                      "ids": [a.id for a in carmr.assumptions],
                                   },
                                   "warnings": a_issues if a_score < QUALITY_THRESHOLD else []})
 

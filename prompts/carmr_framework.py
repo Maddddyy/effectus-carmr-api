@@ -118,17 +118,17 @@ The falsification condition must be:
 A falsification condition that cannot be evaluated unambiguously by a board secretary
 is not yet a valid governance instrument. Rewrite it.
 
-### Parent-Child Assumption Structure
+### Assumption Set Structure
 
-PARENT assumptions: High-level strategic bets (max 3). These are ABSTRACT PREMISES
-that would appear in a board-level argument. They are not directly testable; they
-summarise a class of risk.
+Assumptions are a FLAT LIST of up to 5, ranked by governance consequence:
+- A1 = the assumption whose falsification would cause the most severe commitment revision
+- A5 = the fifth most consequential
 
-CHILD assumptions: Specific, testable operationalisations of a parent (max 2 per parent).
-A child MUST:
-- Make the parent MORE TESTABLE, not just rephrase it
-- Have its OWN falsification condition (independent of siblings)
-- Refer to a SPECIFIC metric, market, or actor
+Include only assumptions that pass the Defeater Test. If 3 assumptions are sufficient to
+cover the genuine governance risk, use 3. Do not manufacture assumptions to reach 5.
+
+Ranking criterion: "If this assumption were false today, how much committed capital is at
+immediate risk and how fundamental would the required revision be?"
 
 Total assumption count: MAX 5. Precision beats coverage.
 
@@ -215,16 +215,16 @@ The governed organisational commitment. Four-part statement:
 - OUTCOMES: Specific, measurable results (not activities - results)
 Plus: Sponsor (board principal), Owner (execution accountable), Reversibility + exit cost range.
 
-### A - ASSUMPTIONS (max 5, parent-child structure)
+### A - ASSUMPTIONS (max 5, flat list ranked by governance consequence)
 Defeasible premises that must hold for the commitment to remain valid.
 Each with: statement, owner, status, confidence, falsification condition (testable undercutter).
-Organised as parent (abstract strategic bet) and child (specific testable operationalisation).
+Ranked A1 (most consequential if false) to A5 (least consequential of the set).
 
 ### R - REASONING (max 3 blocks)
 Walton's Practical Reasoning: THEN (claim) | BECAUSE (grounds + warrant) | ELABORATION (defeat analysis)
 Each block is a distinct logical strand. Assumptions linked explicitly.
 
-### M - MEANING (max 5 terms)
+### M - MEANING (3-5 terms)
 Terms in falsification conditions or reasoning warrants whose drift would create equivocation.
 Each with: operational definition | drift risk (specific governance failure, not general ambiguity).
 

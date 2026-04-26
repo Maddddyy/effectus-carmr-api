@@ -128,18 +128,18 @@ owner: The executive ACCOUNTABLE for execution (role minimum).
     )
 
 
-# ── Stage 3: Assumptions (A) ── the most critical stage ──────────────────────
+# -- Stage 3: Assumptions (A) -- the most critical stage ---------------------
 
 async def run_assumptions(running_context: dict) -> Tuple[dict, float, List[str]]:
     """
     Two-pass extraction:
-    Pass 1: Draft 3-5 assumptions with parent-child structure
+    Pass 1: Draft up to 5 flat assumptions ranked by governance relevance
     Pass 2: Adversarial QC using the 4 argumentation tests - revise or replace failures
     """
     system = get_stage_system_prompt(
         "Assumptions Extraction (A) - Argumentation Analysis",
-        "Extract defeasible premises using formal argumentation criteria. Max 5. "
-        "Parent-child structure. Ultra-precise falsification conditions."
+        "Extract the highest-relevance defeasible premises using formal argumentation criteria. "
+        "Max 5 flat assumptions. Ranked by governance consequence. Ultra-precise falsification conditions."
     )
 
     doc = running_context.get("doc_context", "")[:40000]
@@ -148,7 +148,7 @@ async def run_assumptions(running_context: dict) -> Tuple[dict, float, List[str]
     stated_grounds = json.dumps(running_context.get("stated_grounds", []))
     contested_terms = json.dumps(running_context.get("contested_terms", []))
 
-    # ── Pass 1: Draft extraction ──────────────────────────────────────────────
+    # -- Pass 1: Draft extraction ----------------------------------------------
     draft_prompt = f"""Commitment extracted:
 {commitment}
 
@@ -162,13 +162,10 @@ Documents:
 
 Extract the ASSUMPTIONS using ARGUMENTATION ANALYSIS.
 
-STRUCTURE RULES:
-- Max 3 PARENT assumptions (high-level strategic bets; not directly testable)
-- Each parent may have at most 1 CHILD assumption (specific operationalisation; directly testable)
-- PARENTS must always outnumber children. E.g. 3 parents + 2 children = OK. 2 parents + 3 children = NOT OK.
-- Total: MAX 5 assumptions. If you can make the case in fewer, do so.
-- A child must have parentId = the parent's id (e.g. "A1")
-- Not every parent needs a child. Only add a child where the parent genuinely needs operationalisation.
+SELECTION CRITERION - governance relevance rank:
+Include only assumptions where falsification would force fundamental revision of the commitment.
+Rank them: A1 = single most consequential if false. A5 = fifth most consequential.
+If fewer than 5 pass the Defeater Test, include fewer. Precision over volume.
 
 CONTENT RULES for each assumption:
 - statement: 1-2 sentences max. One claim. If it contains "and", split or prune.
@@ -212,33 +209,21 @@ The implicit grounds list above is your starting point for finding them.
     if not assumptions_draft:
         return {"assumptions": []}, 0.3, ["No assumptions extracted in draft pass"]
 
-    # ── Pass 2: Adversarial QC ────────────────────────────────────────────────
+    # -- Pass 2: Adversarial QC -----------------------------------------------
     qc_result, qc_score, qc_issues = await _qc_assumptions(
         assumptions_draft, commitment, system
     )
 
     final_assumptions = qc_result.get("assumptions", assumptions_draft)
 
-    # Enforce max 5, and parents must outnumber children
+    # Enforce hard max 5, flat list only
     if len(final_assumptions) > 5:
-        parents = [a for a in final_assumptions if not a.get("parentId")]
-        children = [a for a in final_assumptions if a.get("parentId")]
-        # Keep up to 3 parents, then fill remaining slots with children (parents must outnumber)
-        kept_parents = parents[:3]
-        max_children = len(kept_parents) - 1  # parents always outnumber
-        kept_children = children[:max(0, max_children)]
-        final_assumptions = (kept_parents + kept_children)[:5]
-        qc_issues.append(f"Trimmed to {len(final_assumptions)} assumptions (parents: {len(kept_parents)}, children: {len(kept_children)})")
-    else:
-        # Even within limit: enforce parents > children
-        parents = [a for a in final_assumptions if not a.get("parentId")]
-        children = [a for a in final_assumptions if a.get("parentId")]
-        if len(children) >= len(parents) and len(children) > 0:
-            # Drop excess children
-            max_children = len(parents) - 1
-            allowed_children = children[:max(0, max_children)]
-            final_assumptions = parents + allowed_children
-            qc_issues.append(f"Rebalanced: {len(parents)} parents, {len(allowed_children)} children (parents must outnumber)")
+        final_assumptions = final_assumptions[:5]
+        qc_issues.append(f"Trimmed to 5 assumptions (governance relevance rank order preserved)")
+
+    # Ensure all parentId fields are null (flat structure)
+    for a in final_assumptions:
+        a["parentId"] = None
 
     return {"assumptions": final_assumptions}, qc_score, qc_issues
 
@@ -255,7 +240,7 @@ async def _qc_assumptions(
 Commitment context:
 {commitment}
 
-DRAFT ASSUMPTIONS:
+DRAFT ASSUMPTIONS (ranked A1 = highest governance consequence):
 {json.dumps(assumptions, indent=2)}
 
 Apply the FOUR ARGUMENTATION TESTS to each assumption:
@@ -278,18 +263,17 @@ Action: Rewrite the falsification condition to meet the precision standard.
 TEST 4 - ATOMICITY TEST:
 "Does this assumption test EXACTLY ONE CLAIM?"
 Fail: The statement contains "and" connecting two distinct claims.
-Action: Either split into parent+child or prune to the single most consequential claim.
+Action: Prune to the single most consequential claim.
 
 ADDITIONAL CHECKS:
-- Are the most DANGEROUS assumptions included? (check the implicit grounds - often more
-  consequential than explicit ones)
-- Parent-child hierarchy: does each child operationalise its parent (not just rephrase)?
+- Are the most DANGEROUS assumptions included? (check implicit grounds - often more consequential)
+- Re-rank by governance consequence after QC. A1 should be the one whose falsification would
+  cause the most severe commitment revision.
 - Falsification conditions: are any too long (>3 sentences)? Trim them.
-- Does any falsification condition use a term that appears in the Meaning directory (i.e. would
-  drift in that term make the condition unmeasurable)? Flag this.
+- Does any falsification condition use a term that may need a Meaning entry? Flag it.
 
 Output the REVISED assumption set. For each change, explain why.
-Keep total at MAX 5.
+Keep total at MAX 5. Flat list only - no parent/child hierarchy.
 """
 
     result, score, issues = await extract_structured(
@@ -298,7 +282,7 @@ Keep total at MAX 5.
         output_schema_description="""
 "assumptions": [
   {
-    "id": "string",
+    "id": "string (A1..A5, flat list)",
     "parentId": null,
     "statement": "string",
     "owner": "string",
@@ -393,7 +377,7 @@ async def run_meaning(running_context: dict) -> Tuple[dict, float, List[str]]:
         "Meaning Extraction (M) - Equivocation Prevention",
         "Identify only terms where semantic drift would create an equivocation fallacy. "
         "If the term's definition is clear and uncontested in context, do not include it. "
-        "Max 5 terms. Precision over coverage."
+        "Target 3-5 terms. Cover all falsification-critical terms but stop at 5."
     )
 
     commitment = json.dumps(running_context.get("commitment", {}), indent=2)
@@ -444,7 +428,9 @@ For each included term:
 - driftRisk: Name the SPECIFIC GOVERNANCE FAILURE. Which falsification condition becomes
   unmeasurable? Which argument in the reasoning collapses?
 
-Max 5 terms. If fewer than 5 meet the inclusion criteria, include fewer.
+Target 3-5 terms. Include all terms where semantic drift would break a falsification condition
+or undercut a reasoning warrant. If only 2-3 terms genuinely qualify, use 2-3.
+Do not pad to reach 5 - but aim for at least 3 to ensure the critical terms are covered.
 """
 
     return await extract_structured(
