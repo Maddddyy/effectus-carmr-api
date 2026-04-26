@@ -1,6 +1,6 @@
 """
 Effectus CARMR Extraction API
-FastAPI + SSE — agentic CARMR extraction pipeline.
+FastAPI + SSE - agentic CARMR extraction pipeline.
 """
 import asyncio
 import json
@@ -28,7 +28,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — allow FE origin
+# CORS - allow FE origin
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

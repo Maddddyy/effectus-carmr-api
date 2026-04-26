@@ -1,5 +1,5 @@
 """
-LLM client — wraps Anthropic Claude Opus with extended thinking.
+LLM client - wraps Anthropic Claude Opus with extended thinking.
 Provides structured JSON extraction with self-critique and retry logic.
 """
 import os
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPUS_MODEL = os.getenv("OPUS_MODEL", "claude-opus-4-5")
 
-# Extended thinking budget (tokens) — generous for agentic quality
+# Extended thinking budget (tokens) - generous for agentic quality
 THINKING_BUDGET = 8000
 
 
@@ -191,7 +191,7 @@ Return the revised extraction as JSON in the same format:
     except Exception as e:
         logger.error(f"Revision pass error: {e}")
 
-    return original_extraction, 0.6, ["Research revision pass failed — using original extraction"]
+    return original_extraction, 0.6, ["Research revision pass failed - using original extraction"]
 
 
 def _extract_json(text: str) -> Optional[dict]:

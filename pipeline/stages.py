@@ -1,5 +1,5 @@
 """
-Pipeline stages — rebuilt on argumentation science foundations.
+Pipeline stages - rebuilt on argumentation science foundations.
 Each stage: precise extraction → adversarial QC → targeted research → revision.
 Limits enforced: max 5 assumptions (parent-child), max 3 reasoning blocks, max 5 meaning terms.
 """
@@ -27,15 +27,15 @@ async def run_preanalysis(doc_context: str, emit) -> dict:
 DOCUMENTS:
 {doc_context[:40000]}
 
-Extract a STRUCTURAL MAP — not a summary. Identify:
+Extract a STRUCTURAL MAP - not a summary. Identify:
 
-1. context_summary: One precise sentence — what strategic commitment is being made and by whom.
+1. context_summary: One precise sentence - what strategic commitment is being made and by whom.
 2. document_type: What kind of documents (board minutes / strategy paper / transcript / mixed)
 3. commitment_signals: Direct quotes or close paraphrases of the actual commitment decision
-4. strategic_claim: The single central claim — what outcome does this commitment assert will follow?
+4. strategic_claim: The single central claim - what outcome does this commitment assert will follow?
 5. stated_grounds: Explicit circumstances or facts cited to justify the commitment
 6. implicit_grounds: Things taken for granted that appear nowhere as explicit statements
-   (look for what is NOT questioned — these are often the most dangerous assumptions)
+   (look for what is NOT questioned - these are often the most dangerous assumptions)
 7. contested_terms: Terms used with strategic weight whose meaning is unclear or potentially drifting
 8. counter_signals: Any stated risks, dissents, or qualifications found in the documents
 """
@@ -83,11 +83,11 @@ Documents:
 
 Extract the COMMITMENT (C). Precision rules:
 
-statementWhat: The EXACT commitment — capital amount, resource, direction. No vagueness.
+statementWhat: The EXACT commitment - capital amount, resource, direction. No vagueness.
   BAD: "Invest in digital infrastructure"
   GOOD: "Commit €250M to establish 8 sovereign edge data-centre sites across Germany"
 
-statementWhyNow: The STRUCTURAL WINDOW — what specific market/regulatory/competitive moment
+statementWhyNow: The STRUCTURAL WINDOW - what specific market/regulatory/competitive moment
   makes NOW the necessary timing. Not "market is growing" but "which specific window closes if
   we don't act now, and what evidence shows it's open now."
 
@@ -95,7 +95,7 @@ statementScope: Explicitly state what IS and IS NOT included. The exclusions are
   as the inclusions. If something is not explicitly excluded, it will be assumed to be in scope.
 
 statementOutcomes: Specific measurable results. Name metrics, targets, timeframes.
-  NOT "establish market leadership" — "achieve €45M ARR by Year 5, top-3 market position in
+  NOT "establish market leadership" - "achieve €45M ARR by Year 5, top-3 market position in
   North American EV by 2030."
 
 reversibility: "full" | "partial" | "irreversible"
@@ -110,18 +110,18 @@ owner: The executive ACCOUNTABLE for execution (role minimum).
         system_prompt=system,
         user_prompt=prompt,
         output_schema_description="""
-"title": "string — specific title, not generic",
-"date": "string — YYYY-MM-DD or best estimate with note",
-"sponsor": "string — name + role if available, role minimum",
-"owner": "string — role minimum",
-"statementWhat": "string — 1-2 precise sentences",
-"statementWhyNow": "string — the structural window, specific",
-"statementScope": "string — what is in AND what is explicitly out",
-"statementOutcomes": "string — specific metrics and timeframes",
+"title": "string - specific title, not generic",
+"date": "string - YYYY-MM-DD or best estimate with note",
+"sponsor": "string - name + role if available, role minimum",
+"owner": "string - role minimum",
+"statementWhat": "string - 1-2 precise sentences",
+"statementWhyNow": "string - the structural window, specific",
+"statementScope": "string - what is in AND what is explicitly out",
+"statementOutcomes": "string - specific metrics and timeframes",
 "reversibility": "full|partial|irreversible",
-"exitCostMin": "string — number in millions if partial, else empty",
-"exitCostMax": "string — number in millions if partial, else empty",
-"portfolio": "string — programme or portfolio name",
+"exitCostMin": "string - number in millions if partial, else empty",
+"exitCostMax": "string - number in millions if partial, else empty",
+"portfolio": "string - programme or portfolio name",
 "status": "draft"
 """,
         thinking=True,
@@ -134,10 +134,10 @@ async def run_assumptions(running_context: dict) -> Tuple[dict, float, List[str]
     """
     Two-pass extraction:
     Pass 1: Draft 3-5 assumptions with parent-child structure
-    Pass 2: Adversarial QC using the 4 argumentation tests — revise or replace failures
+    Pass 2: Adversarial QC using the 4 argumentation tests - revise or replace failures
     """
     system = get_stage_system_prompt(
-        "Assumptions Extraction (A) — Argumentation Analysis",
+        "Assumptions Extraction (A) - Argumentation Analysis",
         "Extract defeasible premises using formal argumentation criteria. Max 5. "
         "Parent-child structure. Ultra-precise falsification conditions."
     )
@@ -178,11 +178,11 @@ CONTENT RULES for each assumption:
   (b) a specific threshold or condition
   (c) a timeframe
   (d) a data source or observable mechanism
-  If you cannot write this in 2-3 sentences, the assumption is not yet well-formed — sharpen it.
+  If you cannot write this in 2-3 sentences, the assumption is not yet well-formed - sharpen it.
 - confidence: your assessment of how well-evidenced this assumption was AT TIME OF COMMITMENT
 - isImplicit: true if the document never states this assumption explicitly
 
-INCLUDE implicit assumptions — they are often the most dangerous.
+INCLUDE implicit assumptions - they are often the most dangerous.
 The implicit grounds list above is your starting point for finding them.
 """
 
@@ -194,11 +194,11 @@ The implicit grounds list above is your starting point for finding them.
   {
     "id": "A1",
     "parentId": null,
-    "statement": "string — 1-2 sentences, single claim",
-    "owner": "string — role or name+role",
+    "statement": "string - 1-2 sentences, single claim",
+    "owner": "string - role or name+role",
     "status": "active",
     "confidence": "high|medium|low|unknown",
-    "falsification": "string — 2-3 sentences, specific metric/threshold/timeframe/source",
+    "falsification": "string - 2-3 sentences, specific metric/threshold/timeframe/source",
     "dissentingView": "string or empty",
     "isImplicit": false
   }
@@ -260,28 +260,28 @@ DRAFT ASSUMPTIONS:
 
 Apply the FOUR ARGUMENTATION TESTS to each assumption:
 
-TEST 1 — DEFEATER TEST:
+TEST 1 - DEFEATER TEST:
 "If this assumption were false, does the commitment ACTUALLY require fundamental revision?"
 Fail: The commitment could continue unchanged even if this assumption is false.
 Action: Remove it. It is not a genuine defeater.
 
-TEST 2 — INDEPENDENCE TEST:
+TEST 2 - INDEPENDENCE TEST:
 "Is this assumption logically distinct from every other assumption?"
 Fail: This assumption is derivable from or a restatement of another.
 Action: Merge the weaker one into the stronger one.
 
-TEST 3 — TESTABILITY TEST:
+TEST 3 - TESTABILITY TEST:
 "Does the falsification condition name a SPECIFIC metric, threshold, timeframe, AND data source?"
 Fail: The falsification condition contains vague language ("if market changes", "if demand falls").
 Action: Rewrite the falsification condition to meet the precision standard.
 
-TEST 4 — ATOMICITY TEST:
+TEST 4 - ATOMICITY TEST:
 "Does this assumption test EXACTLY ONE CLAIM?"
 Fail: The statement contains "and" connecting two distinct claims.
 Action: Either split into parent+child or prune to the single most consequential claim.
 
 ADDITIONAL CHECKS:
-- Are the most DANGEROUS assumptions included? (check the implicit grounds — often more
+- Are the most DANGEROUS assumptions included? (check the implicit grounds - often more
   consequential than explicit ones)
 - Parent-child hierarchy: does each child operationalise its parent (not just rephrase)?
 - Falsification conditions: are any too long (>3 sentences)? Trim them.
@@ -309,7 +309,7 @@ Keep total at MAX 5.
     "isImplicit": false
   }
 ],
-"qc_changes": ["string — description of each change made and why"],
+"qc_changes": ["string - description of each change made and why"],
 "qc_score": 0.0
 """,
         thinking=True,
@@ -324,7 +324,7 @@ Keep total at MAX 5.
 
 async def run_reasoning(running_context: dict) -> Tuple[dict, float, List[str]]:
     system = get_stage_system_prompt(
-        "Reasoning Extraction (R) — Walton's Practical Reasoning",
+        "Reasoning Extraction (R) - Walton's Practical Reasoning",
         "Extract the argument structure using Walton's Practical Reasoning scheme. "
         "Max 3 blocks. Each block is a DISTINCT logical strand, not a narrative paragraph."
     )
@@ -345,17 +345,17 @@ Documents:
 
 Extract the REASONING using Walton's Practical Reasoning scheme.
 
-STRUCTURE — each block captures a DISTINCT logical strand:
+STRUCTURE - each block captures a DISTINCT logical strand:
   THEN (claim): The specific outcome asserted IF the linked assumptions hold.
-    — Not a restatement of the commitment outcomes. The LOGICAL CONSEQUENCE of the specific
+    - Not a restatement of the commitment outcomes. The LOGICAL CONSEQUENCE of the specific
     assumptions linked to this block.
   BECAUSE (grounds + warrant): Two things joined:
     (a) the GROUNDS: what data or evidence supports this claim?
     (b) the WARRANT: the GENERAL PRINCIPLE that connects the grounds to the claim.
     Format: "[Evidence/data] operates through [mechanism] to produce [claim]"
-    — NOT "because the market is growing" — "because [specific evidence] + [specific mechanism]"
+    - NOT "because the market is growing" - "because [specific evidence] + [specific mechanism]"
   ELABORATION (defeat analysis): Which specific assumptions, if falsified, would UNDERCUT
-    this argument strand? Name the SINGLE POINT OF FAILURE — the one assumption whose failure
+    this argument strand? Name the SINGLE POINT OF FAILURE - the one assumption whose failure
     would collapse this entire strand of reasoning.
 
 RULES:
@@ -376,9 +376,9 @@ RULES:
   {
     "id": "RB1",
     "linkedAssumptions": ["A1", "A1-a"],
-    "then": "string — the specific outcome asserted (1-2 sentences)",
-    "because": "string — [evidence] operates through [mechanism] to produce [claim]",
-    "elaboration": "string — single point of failure analysis, names specific assumption ids"
+    "then": "string - the specific outcome asserted (1-2 sentences)",
+    "because": "string - [evidence] operates through [mechanism] to produce [claim]",
+    "elaboration": "string - single point of failure analysis, names specific assumption ids"
   }
 ]
 """,
@@ -390,7 +390,7 @@ RULES:
 
 async def run_meaning(running_context: dict) -> Tuple[dict, float, List[str]]:
     system = get_stage_system_prompt(
-        "Meaning Extraction (M) — Equivocation Prevention",
+        "Meaning Extraction (M) - Equivocation Prevention",
         "Identify only terms where semantic drift would create an equivocation fallacy. "
         "If the term's definition is clear and uncontested in context, do not include it. "
         "Max 5 terms. Precision over coverage."
@@ -410,7 +410,7 @@ async def run_meaning(running_context: dict) -> Tuple[dict, float, List[str]]:
     prompt = f"""Commitment:
 {commitment}
 
-Assumptions (pay attention to falsification conditions — terms used there are highest priority):
+Assumptions (pay attention to falsification conditions - terms used there are highest priority):
 {json.dumps(assumptions, indent=2)}
 
 Reasoning blocks:
@@ -418,12 +418,12 @@ Reasoning blocks:
 
 Pre-analysis flagged these contested terms: {json.dumps(contested_terms)}
 
-Identify MEANING TERMS — but only where EQUIVOCATION is a genuine governance risk.
+Identify MEANING TERMS - but only where EQUIVOCATION is a genuine governance risk.
 
 INCLUSION CRITERIA (must meet at least one):
-1. The term appears in a FALSIFICATION CONDITION — if its meaning drifts, the condition
+1. The term appears in a FALSIFICATION CONDITION - if its meaning drifts, the condition
    becomes unmeasurable and governance breaks down.
-2. The term is used in the WARRANT of a reasoning block — if it shifts meaning, the
+2. The term is used in the WARRANT of a reasoning block - if it shifts meaning, the
    causal mechanism no longer holds.
 3. The term has documented CONTESTED USAGE in the relevant industry or regulatory context.
 
@@ -435,10 +435,10 @@ EXCLUSION CRITERIA (do not include if):
 For each included term:
 - term: MUST be a word or phrase that appears VERBATIM (or near-verbatim) in the source
   documents. Do NOT invent labels or use terms from internet research. If the document uses
-  "anchor client", use "anchor client" — not "major customer" or "enterprise buyer".
+  "anchor client", use "anchor client" - not "major customer" or "enterprise buyer".
 - contextQuote: The EXACT phrase from the documents where this term appears in a
   governance-critical role (falsification condition or reasoning warrant).
-- definition: OPERATIONAL definition — specific enough to CHECK. Not a dictionary definition.
+- definition: OPERATIONAL definition - specific enough to CHECK. Not a dictionary definition.
   "A single enterprise customer committing to ≥€5M ARR minimum 3-year contract" not
   "a major customer."
 - driftRisk: Name the SPECIFIC GOVERNANCE FAILURE. Which falsification condition becomes
@@ -454,11 +454,11 @@ Max 5 terms. If fewer than 5 meet the inclusion criteria, include fewer.
 "meaningTerms": [
   {
     "id": "M1",
-    "term": "string — exact term",
+    "term": "string - exact term",
     "autoDetected": true,
-    "contextQuote": "string — exact quote where this term has governance weight",
-    "definition": "string — operational, specific, checkable",
-    "driftRisk": "string — names the specific condition/argument that breaks if this term drifts"
+    "contextQuote": "string - exact quote where this term has governance weight",
+    "definition": "string - operational, specific, checkable",
+    "driftRisk": "string - names the specific condition/argument that breaks if this term drifts"
   }
 ]
 """,
@@ -470,9 +470,9 @@ Max 5 terms. If fewer than 5 meet the inclusion criteria, include fewer.
 
 async def run_review(running_context: dict) -> Tuple[dict, float, List[str]]:
     system = get_stage_system_prompt(
-        "Review Triggers (R) — Falsification-Style Governance",
+        "Review Triggers (R) - Falsification-Style Governance",
         "Generate review triggers that are as precise as falsification conditions. "
-        "Not scheduled check-ins — structured defeat conditions that fire mandatory re-examination."
+        "Not scheduled check-ins - structured defeat conditions that fire mandatory re-examination."
     )
 
     commitment = json.dumps(running_context.get("commitment", {}), indent=2)
@@ -497,20 +497,20 @@ Generate REVIEW TRIGGERS as FALSIFICATION-STYLE GOVERNANCE INSTRUMENTS.
 
 Time trigger (1-2 maximum):
 - A scheduled re-examination at a specific date
-- Date: calculate from the commitment date — typically 12-18 months out
+- Date: calculate from the commitment date - typically 12-18 months out
 - Description: What SPECIFICALLY should be re-examined at this date?
   Not "review all assumptions" but "assess whether [specific metric X] has reached
   [threshold Y] consistent with the commercial timeline in A2"
 - If the commitment date is unknown, use a relative description: "12 months post first-site go-live"
 
-Event trigger (1-2 maximum — do not proliferate):
+Event trigger (1-2 maximum - do not proliferate):
 - Fired by a SPECIFIC observable event, not a general market trend
 - Derive from the falsification condition of the SINGLE HIGHEST-RISK assumption only
 - One event trigger is sufficient if it covers the highest-risk assumption
 - Two event triggers only if there are two genuinely distinct, high-consequence risk events
 - Format: "If [specific metric] crosses [specific threshold] for [specific duration],
   trigger mandatory review of [specific assumption ids] within [timeframe]"
-- Do NOT create an event trigger for every assumption — that defeats the purpose of prioritisation
+- Do NOT create an event trigger for every assumption - that defeats the purpose of prioritisation
 
 Total triggers: maximum 4 (up to 2 time + up to 2 event). Fewer is better if they cover the highest risks.
 
@@ -526,7 +526,7 @@ If not, the trigger is too vague.
   {
     "id": "RT1",
     "type": "time|event",
-    "description": "string — specific, binary-testable trigger condition",
+    "description": "string - specific, binary-testable trigger condition",
     "nextReviewDue": "YYYY-MM-DD for time triggers, empty for event triggers",
     "overdue": false
   }
@@ -555,14 +555,14 @@ async def run_cross_validation(running_context: dict, carmr) -> dict:
         if not a.falsification.strip():
             warnings.append(f"{a.id}: missing falsification condition")
         elif len(a.falsification.split()) < 15:
-            warnings.append(f"{a.id}: falsification condition may be too brief — verify it names metric/threshold/timeframe")
+            warnings.append(f"{a.id}: falsification condition may be too brief - verify it names metric/threshold/timeframe")
 
     # Check meaning covers falsification terms
     meaning_term_words = {t.term.lower() for t in carmr.meaningTerms}
     all_falsification_text = " ".join(a.falsification.lower() for a in carmr.assumptions)
     for term in meaning_term_words:
         if term not in all_falsification_text:
-            warnings.append(f"Meaning term '{term}' not referenced in any falsification condition — review necessity")
+            warnings.append(f"Meaning term '{term}' not referenced in any falsification condition - review necessity")
 
     # Check review triggers
     has_time = any(rt.type == "time" for rt in carmr.reviewTriggers)
