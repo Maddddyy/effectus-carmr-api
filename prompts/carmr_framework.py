@@ -158,6 +158,59 @@ Structure each block as:
 
 Max 3 blocks. If you cannot identify distinct logical strands, use fewer.
 
+### Reasoning Block Assumption Weights - ASPIC+ Preference Ordering
+
+Each assumption linked to a reasoning block must be assigned a weight that reflects
+its role in the inference. This is required by ASPIC+ (Modgil and Prakken, 2014):
+argument strength depends on explicit preference orderings over premises.
+
+Three weight classes:
+
+CRITICAL: This assumption is a NECESSARY PREMISE. Its falsification produces
+  UNDERCUTTING DEFEAT (Pollock 1987) of this block - the BECAUSE mechanism no
+  longer connects the grounds to the THEN. The block collapses entirely.
+  Assignment test: "If this assumption were false, would the BECAUSE field still
+  hold as a valid inference to the THEN?" If NO - Critical.
+
+SUPPORTING: This assumption strengthens the warrant but its falsification produces
+  only REBUTTING DEFEAT at the margin - the THEN may need revision (lower targets,
+  narrowed scope) but the core inference survives.
+  Assignment test: "If this assumption were false, could the THEN still happen in
+  some reduced or modified form?" If YES - Supporting.
+
+CONTEXTUAL: This assumption describes background conditions. It does not appear
+  directly in the BECAUSE inference chain. Its falsification is a warning signal
+  but does not attack this block's grounded extension (Dung 1995).
+  Assignment test: "Is this assumption actually referenced in the BECAUSE mechanism,
+  or just background context?" If BACKGROUND ONLY - Contextual.
+
+RULE: Every block must have at least one CRITICAL assumption. A block where all
+  linked assumptions are Contextual is formally indefensible - it has no testable
+  necessary premise. Flag this as a governance gap.
+
+### Reasoning Blocks - Gap Justification (Undefended Premises)
+
+A reasoning block with zero linked assumptions contains an UNDEFENDED PREMISE in the
+sense of Pollock (1995). It cannot be placed in the grounded extension of the CARMR
+argument graph (Dung 1995). It is not a valid governance instrument.
+
+When a reasoning block has no linked assumptions, you MUST populate the gapJustification
+field. Do not leave it empty. Excavate the implicit premise from the document:
+
+WHAT TO LOOK FOR:
+- What must be true for the BECAUSE to hold as an inference?
+- What is the author obviously assuming but never stating?
+- Is this a premise that was deliberately left unstated (most dangerous case)?
+
+FORMAT of gapJustification (2-3 sentences max):
+"This reasoning step relies on an unstated premise: [the implicit belief]. This
+premise is not governed because [why it was omitted - obvious, politically sensitive,
+or simply not considered]. It should be promoted to a governed assumption with a
+testable falsification condition."
+
+RULE: gapJustification is ONLY populated when linkedAssumptions is empty.
+When linkedAssumptions is non-empty, gapJustification must be "".
+
 ### Meaning Terms - Equivocation Prevention
 
 Equivocation fallacies occur when a key term is used with one meaning to establish a
@@ -261,7 +314,49 @@ definition of infrastructure that became obsolete before the first site went liv
 """
 
 
+REASONING_WEIGHT_EXAMPLES = """
+## REASONING WEIGHT ASSIGNMENT - WORKED EXAMPLES
+
+### Example: Hochtief/Yorizon - Sovereign Data Centre, Germany 2023
+
+Reasoning Block RB1:
+  THEN: Hochtief will establish EUR 45M ARR data-centre business by Year 5
+  BECAUSE: Construction expertise reduces capex delivery risk + first-mover sovereign premium
+
+Linked assumptions and correct weight assignments:
+  A1 (Infrastructure adjacency): CRITICAL
+  Rationale: If construction expertise does NOT transfer to data-centre operations,
+  the BECAUSE field ("construction expertise reduces capex delivery risk") is directly
+  falsified. The inference from A1 to THEN collapses entirely. No version of RB1
+  survives A1 being false. This is a textbook undercutting defeat (Pollock 1987).
+
+  A3 (Sovereign demand CAGR at or above 25%): SUPPORTING
+  Rationale: If sovereign demand grows at only 18% CAGR, EUR 45M ARR by Year 5 becomes
+  harder but the core inference (first-mover premium + infrastructure edge) still holds
+  at a revised revenue target. The THEN needs revision, not abandonment. Partial
+  rebutting defeat at the margin.
+
+### Example: Ford EV - Unsupported Block
+
+If a reasoning block states:
+  THEN: Ford achieves profitable EV volume by 2026
+  BECAUSE: First-mover learning curve advantage reduces unit costs faster than ICE era
+  linkedAssumptions: []
+
+gapJustification should read:
+  "This reasoning step relies on an unstated premise: that Ford's manufacturing
+  organisation has the operational capability to execute a learning-curve cost reduction
+  at the required rate, independent of external regulatory or demand conditions.
+  This premise was never formally stated or tested, making it a classic undefended
+  premise (Pollock 1995). It should be promoted to a governed assumption with a
+  falsification condition tied to cost-per-unit benchmarks at 24-month intervals."
+"""
+
+
 def get_stage_system_prompt(stage_name: str, stage_description: str) -> str:
+    # Include reasoning weight examples only for the Reasoning stage
+    reasoning_supplement = REASONING_WEIGHT_EXAMPLES if "Reasoning" in stage_name else ""
+
     return f"""You are an expert in argumentation technology and Strategic Validity Management (SVM),
 operating as the analytical engine of Effectus Research. You have deep knowledge of formal
 argumentation theory: Walton's argumentation schemes, defeasible reasoning (Pollock 1987/1995),
@@ -286,6 +381,8 @@ LANGUAGE RULES (non-negotiable):
 {CARMR_FRAMEWORK}
 
 {REFERENCE_CASES}
+
+{reasoning_supplement}
 
 Current pipeline stage: {stage_name}
 """

@@ -307,10 +307,21 @@ Keep total at MAX 5. Flat list only - no parent/child hierarchy.
 # ── Stage 4: Reasoning (R) ────────────────────────────────────────────────────
 
 async def run_reasoning(running_context: dict) -> Tuple[dict, float, List[str]]:
+    """
+    Two-pass extraction:
+    Pass 1: Draft up to 3 reasoning blocks using Walton's Practical Reasoning scheme.
+    Extract assumptionWeights for each linked assumption.
+    Extract gapJustification for any block with no linked assumptions.
+    Pass 2: Adversarial QC applying Walton's Critical Questions and ASPIC+ weight validation.
+    Checks: warrant validity, weight assignments, gap coverage.
+    """
     system = get_stage_system_prompt(
         "Reasoning Extraction (R) - Walton's Practical Reasoning",
         "Extract the argument structure using Walton's Practical Reasoning scheme. "
-        "Max 3 blocks. Each block is a DISTINCT logical strand, not a narrative paragraph."
+        "Max 3 blocks. Each block is a DISTINCT logical strand, not a narrative paragraph. "
+        "For each linked assumption, assign a weight (critical/supporting/contextual) using "
+        "ASPIC+ preference ordering. For any block with no linked assumptions, excavate the "
+        "implicit undefended premise and populate gapJustification."
     )
 
     commitment = json.dumps(running_context.get("commitment", {}), indent=2)
@@ -318,48 +329,80 @@ async def run_reasoning(running_context: dict) -> Tuple[dict, float, List[str]]:
     assumptions = assumptions_raw.get("assumptions", []) if isinstance(assumptions_raw, dict) else []
     doc = running_context.get("doc_context", "")[:30000]
 
-    prompt = f"""Commitment:
+    # -- Pass 1: Draft extraction ------------------------------------------------
+    draft_prompt = f"""Commitment:
 {commitment}
 
-Assumptions (defeasible premises):
+Assumptions (defeasible premises - your pool for linking to reasoning blocks):
 {json.dumps(assumptions, indent=2)}
 
 Documents:
 {doc}
 
-Extract the REASONING using Walton's Practical Reasoning scheme.
+Extract the REASONING using Walton's Practical Reasoning scheme. Two-part task:
+
+PART A - Extract up to 3 reasoning blocks (THEN / BECAUSE / ELABORATION):
 
 STRUCTURE - each block captures a DISTINCT logical strand:
   THEN (claim): The specific outcome asserted IF the linked assumptions hold.
-    - Not a restatement of the commitment outcomes. The LOGICAL CONSEQUENCE of the specific
-    assumptions linked to this block.
+    - Not a restatement of the commitment outcomes. The LOGICAL CONSEQUENCE of
+    the specific assumptions linked to this block.
   BECAUSE (grounds + warrant): Two things joined:
     (a) the GROUNDS: what data or evidence supports this claim?
     (b) the WARRANT: the GENERAL PRINCIPLE that connects the grounds to the claim.
     Format: "[Evidence/data] operates through [mechanism] to produce [claim]"
-    - NOT "because the market is growing" - "because [specific evidence] + [specific mechanism]"
-  ELABORATION (defeat analysis): Which specific assumptions, if falsified, would UNDERCUT
-    this argument strand? Name the SINGLE POINT OF FAILURE - the one assumption whose failure
-    would collapse this entire strand of reasoning.
+  ELABORATION (defeat analysis): Name the SINGLE POINT OF FAILURE - the one
+    assumption whose falsification would collapse this entire argument strand.
 
-RULES:
-- Max 3 blocks. If the same logical move is made twice, MERGE into one block.
-- Every assumption should be linked to at least one block.
-- The THEN must be distinct across blocks (different outcomes, not the same outcome restated).
-- ELABORATION must name specific assumption ids, not just describe risk generically.
+RULES for blocks:
+- Max 3 blocks. If the same logical move appears twice, MERGE into one block.
+- The THEN must be DISTINCT across blocks. No restatement across blocks.
 - Blocks should collectively cover: operational logic (can we execute?),
-  commercial logic (will the market respond?), and strategic logic (will this produce durable advantage?).
-  Use fewer if fewer distinct strands exist in this commitment.
+  commercial logic (will the market respond?), and strategic logic (will this
+  produce durable advantage?). Use fewer if fewer distinct strands exist.
+
+PART B - For each block, assign assumption weights and handle gaps:
+
+For blocks WITH linked assumptions:
+  Link every assumption that has a logical role in this block's BECAUSE.
+  Then assign assumptionWeights using ASPIC+ preference ordering:
+
+  CRITICAL: The inference rule in BECAUSE directly depends on this assumption.
+    If this assumption is falsified, the BECAUSE no longer connects grounds to THEN.
+    Undercutting defeat (Pollock 1987). The block collapses entirely.
+    Test: "Does the BECAUSE mechanism break if this assumption is false?" YES = Critical.
+
+  SUPPORTING: This assumption strengthens the inference but the core BECAUSE
+    survives its falsification in reduced form. Rebutting defeat at the margin.
+    Test: "Can the THEN still happen in some modified form without this assumption?" YES = Supporting.
+
+  CONTEXTUAL: Background condition. Not directly in the BECAUSE inference chain.
+    Its falsification is a warning but does not attack this block's logical core.
+    Test: "Does this assumption appear in the BECAUSE mechanism, or just surround it?" SURROUNDS = Contextual.
+
+  RULE: Every block must have at least one CRITICAL assumption. A block with only
+    contextual or supporting assumptions is formally indefensible. If you cannot
+    identify a critical assumption, this is a governance gap - see below.
+
+For blocks WITHOUT linked assumptions (zero assumptions can be linked):
+  Populate gapJustification. Do NOT leave it empty.
+  Excavate the implicit premise: what must be true for the BECAUSE to hold?
+  What is the author taking for granted?
+  Format: 2-3 sentences. "This reasoning step relies on an unstated premise: [X].
+  This premise was not governed because [Y]. It should be promoted to a governed
+  assumption with a testable falsification condition tied to [Z]."
 """
 
-    return await extract_structured(
+    draft_result, _, _ = await extract_structured(
         system_prompt=system,
-        user_prompt=prompt,
+        user_prompt=draft_prompt,
         output_schema_description="""
 "reasoningBlocks": [
   {
     "id": "RB1",
-    "linkedAssumptions": ["A1", "A1-a"],
+    "linkedAssumptions": ["A1", "A2"],
+    "assumptionWeights": {"A1": "critical", "A2": "supporting"},
+    "gapJustification": "",
     "then": "string - the specific outcome asserted (1-2 sentences)",
     "because": "string - [evidence] operates through [mechanism] to produce [claim]",
     "elaboration": "string - single point of failure analysis, names specific assumption ids"
@@ -368,6 +411,134 @@ RULES:
 """,
         thinking=True,
     )
+
+    blocks_draft = draft_result.get("reasoningBlocks", [])
+
+    if not blocks_draft:
+        return {"reasoningBlocks": []}, 0.3, ["No reasoning blocks extracted in draft pass"]
+
+    # -- Pass 2: Adversarial QC --------------------------------------------------
+    qc_result, qc_score, qc_issues = await _qc_reasoning(
+        blocks_draft, assumptions, commitment, system
+    )
+
+    final_blocks = qc_result.get("reasoningBlocks", blocks_draft)
+
+    # Enforce hard max 3
+    if len(final_blocks) > 3:
+        final_blocks = final_blocks[:3]
+        qc_issues.append("Trimmed to 3 blocks (max enforced)")
+
+    # Enforce gapJustification / assumptionWeights mutual exclusion
+    for block in final_blocks:
+        if block.get("linkedAssumptions"):
+            block["gapJustification"] = ""
+        else:
+            block["assumptionWeights"] = {}
+
+    return {"reasoningBlocks": final_blocks}, qc_score, qc_issues
+
+
+async def _qc_reasoning(
+    blocks: list,
+    assumptions: list,
+    commitment: str,
+    system: str,
+) -> Tuple[dict, float, List[str]]:
+    """
+    Adversarial QC pass on reasoning blocks.
+    Applies Walton's Critical Questions (CQ2 focus) and ASPIC+ weight validation.
+    Checks gap coverage, THEN distinctiveness, and warrant quality.
+
+    Critical Questions applied (Walton and Macagno 2015):
+    CQ2: Does the BECAUSE mechanism actually connect the grounds to the THEN?
+         (Tests warrant validity - the most common failure mode)
+    CQ2a: Is every Critical assumption actually load-bearing in the BECAUSE?
+          Or was it labelled Critical to satisfy the rule without justification?
+    CQ-Gap: Does every block have at least one explicitly governed assumption?
+            If not, is the gapJustification precise enough to be actionable?
+    """
+    qc_prompt = f"""You are performing ADVERSARIAL ARGUMENTATION CRITIQUE on a draft set of reasoning blocks.
+
+Commitment context:
+{commitment}
+
+Available governed assumptions:
+{json.dumps(assumptions, indent=2)}
+
+DRAFT REASONING BLOCKS:
+{json.dumps(blocks, indent=2)}
+
+Apply the following FIVE QC TESTS to every block. Revise or flag failures.
+
+TEST 1 - WARRANT VALIDITY (Walton CQ2):
+"Does the BECAUSE field actually state a mechanism that connects the linked
+assumptions to the THEN?"
+Fail: The BECAUSE is a narrative restatement of the THEN, or a list of facts
+with no connecting mechanism. "Because the market is growing and we have expertise"
+is NOT a mechanism. "[Data] operates through [mechanism] to produce [outcome]" IS.
+Action: Rewrite BECAUSE to name the specific causal mechanism.
+
+TEST 2 - CRITICAL WEIGHT JUSTIFICATION (ASPIC+ Pollock 1987):
+"For each assumption marked Critical: would the BECAUSE mechanism ACTUALLY BREAK
+if this assumption were false?"
+Fail: A Critical assumption is labelled Critical but the BECAUSE would still hold
+even if that assumption were false. This is weight inflation.
+Action: Downgrade to Supporting or Contextual as appropriate.
+Also fail if: no assumption is marked Critical but the block has linked assumptions.
+Action: Identify which assumption is genuinely load-bearing and mark it Critical.
+
+TEST 3 - THEN DISTINCTIVENESS:
+"Is each block's THEN a LOGICALLY DISTINCT outcome from all other blocks' THEN?"
+Fail: Two blocks assert the same outcome through different mechanisms.
+Action: Merge them, keeping the stronger BECAUSE.
+
+TEST 4 - GAP COVERAGE:
+"For every block with zero linkedAssumptions: is the gapJustification present,
+specific, and actionable?"
+Fail: gapJustification is empty, or says only 'no assumptions were identified',
+or is too vague to prompt a governance action.
+Action: Excavate the implicit premise more precisely. It must name:
+  (a) what must be believed for the BECAUSE to hold as valid inference
+  (b) why this premise is ungoverned (unstated/obvious/politically sensitive)
+  (c) what a falsification condition for this implicit premise would look like
+
+TEST 5 - ASSUMPTION COVERAGE:
+"Are all available governed assumptions linked to at least one reasoning block?"
+Fail: A governed assumption exists in the assumption list but appears in no block.
+Note: This is a warning (not a block failure) - unlinked assumptions may still be
+valid premises that apply globally. Flag them in qc_changes.
+Action: If an unlinked assumption clearly belongs to an existing block's logical
+strand, add it. Do not manufacture new links.
+
+OUTPUT: The REVISED reasoning blocks and a QC score.
+qc_score: 0.0-1.0. Score 1.0 only if all 5 tests pass with no revisions needed.
+Deduct per failure: Test 1 = 0.25, Test 2 = 0.20, Test 3 = 0.15, Test 4 = 0.25, Test 5 = 0.10 (warning only).
+"""
+
+    result, score, issues = await extract_structured(
+        system_prompt=system,
+        user_prompt=qc_prompt,
+        output_schema_description="""
+"reasoningBlocks": [
+  {
+    "id": "string (RB1..RB3)",
+    "linkedAssumptions": ["string"],
+    "assumptionWeights": {"assumptionId": "critical|supporting|contextual"},
+    "gapJustification": "string - only populated when linkedAssumptions is empty",
+    "then": "string",
+    "because": "string",
+    "elaboration": "string"
+  }
+],
+"qc_changes": ["string - description of each change and the test that triggered it"],
+"qc_score": 0.0
+""",
+        thinking=True,
+    )
+
+    model_qc_score = result.get("qc_score", score)
+    return result, float(model_qc_score), issues
 
 
 # ── Stage 5: Meaning (M) ──────────────────────────────────────────────────────
@@ -535,6 +706,57 @@ async def run_cross_validation(running_context: dict, carmr) -> dict:
     unlinked = assumption_ids - linked_ids
     if unlinked:
         warnings.append(f"Assumptions not linked to reasoning: {', '.join(sorted(unlinked))}")
+
+    # Check for unsupported reasoning blocks (zero linked assumptions)
+    for rb in carmr.reasoningBlocks:
+        if len(rb.linkedAssumptions) == 0:
+            if rb.gapJustification.strip():
+                warnings.append(
+                    f"{rb.id}: UNSUPPORTED REASONING STEP - no governed assumptions linked. "
+                    f"Implicit premise identified: '{rb.gapJustification[:120]}...' "
+                    f"This block is not in the grounded extension (Dung 1995) and represents "
+                    f"a governance gap. Promote the implicit premise to a governed assumption."
+                )
+            else:
+                warnings.append(
+                    f"{rb.id}: UNSUPPORTED REASONING STEP - no governed assumptions linked "
+                    f"and no gap justification provided. This is an undefended premise "
+                    f"(Pollock 1995). The board cannot evaluate this block. Requires immediate attention."
+                )
+
+    # Check that every block with linked assumptions has at least one Critical assumption
+    for rb in carmr.reasoningBlocks:
+        if rb.linkedAssumptions:
+            weights = rb.assumptionWeights or {}
+            has_critical = any(
+                weights.get(aid, "supporting") == "critical"
+                for aid in rb.linkedAssumptions
+            )
+            if not has_critical:
+                warnings.append(
+                    f"{rb.id}: No assumption is marked Critical. A block with only "
+                    f"Supporting or Contextual assumptions has no testable necessary "
+                    f"premise - it is formally indefensible under ASPIC+ weight ordering. "
+                    f"Review assumption weights and promote the most load-bearing assumption to Critical."
+                )
+
+    # Check that failed Critical assumptions are surfaced
+    for rb in carmr.reasoningBlocks:
+        if rb.linkedAssumptions:
+            weights = rb.assumptionWeights or {}
+            assumption_map = {a.id: a for a in carmr.assumptions}
+            collapsed = [
+                aid for aid in rb.linkedAssumptions
+                if weights.get(aid, "supporting") == "critical"
+                and assumption_map.get(aid) is not None
+                and assumption_map[aid].status == "failed"
+            ]
+            if collapsed:
+                warnings.append(
+                    f"{rb.id}: COLLAPSED - Critical assumption(s) {', '.join(collapsed)} "
+                    f"have failed. This reasoning block is invalidated by undercutting defeat "
+                    f"(Pollock 1987). The expected outcome in 'then' can no longer be claimed."
+                )
 
     # Check falsification completeness
     for a in carmr.assumptions:

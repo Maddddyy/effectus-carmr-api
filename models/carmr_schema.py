@@ -43,6 +43,16 @@ class Assumption(BaseModel):
 class ReasoningBlock(BaseModel):
     id: str
     linkedAssumptions: List[str] = Field(default_factory=list)
+    assumptionWeights: dict = Field(default_factory=dict)
+    # {assumptionId: 'critical' | 'supporting' | 'contextual'}
+    # 'critical' = necessary premise; block suffers undercutting defeat if this assumption fails (Pollock 1987)
+    # 'supporting' = strengthens warrant but block survives falsification with revision
+    # 'contextual' = background condition; not a direct premise in the inference rule
+    gapJustification: str = ""
+    # Populated ONLY when linkedAssumptions is empty.
+    # The implicit premise the author is relying on - excavated from the document.
+    # A governance gap: this reasoning step is undefended (Dung 1995 grounded extension).
+    # Should be surfaced to the user as a candidate for promotion to a governed assumption.
     then: str = ""
     because: str = ""
     elaboration: str = ""
