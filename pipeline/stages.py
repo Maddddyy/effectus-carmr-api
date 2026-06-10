@@ -132,23 +132,116 @@ owner: The executive ACCOUNTABLE for execution (role minimum).
 
 async def run_assumptions(running_context: dict) -> Tuple[dict, float, List[str]]:
     """
-    Two-pass extraction:
-    Pass 1: Draft up to 5 flat assumptions ranked by governance relevance
-    Pass 2: Adversarial QC using the 4 argumentation tests - revise or replace failures
+    Three-pass extraction:
+    Pass 0: Fallacy scan - detect 16 reasoning patterns, excavate hidden premises
+    Pass 1: Draft up to 5 flat assumptions ranked by governance relevance,
+            merging fallacy-derived candidates with conventionally extracted ones
+    Pass 2: Adversarial QC using the 4 argumentation tests + Test 5 (citation fidelity)
+            Followed by deterministic verbatim quote verification.
     """
     system = get_stage_system_prompt(
         "Assumptions Extraction (A) - Argumentation Analysis",
         "Extract the highest-relevance defeasible premises using formal argumentation criteria. "
-        "Max 5 flat assumptions. Ranked by governance consequence. Ultra-precise falsification conditions."
+        "Max 5 flat assumptions. Ranked by governance consequence. Ultra-precise falsification conditions. "
+        "Use fallacy excavation to surface hidden premises the document relies on but never states."
     )
 
-    doc = running_context.get("doc_context", "")[:40000]
+    doc = running_context.get("doc_context", "")
+    doc_for_extraction = doc[:40000]
     commitment = json.dumps(running_context.get("commitment", {}), indent=2)
     implicit_grounds = json.dumps(running_context.get("implicit_grounds", []))
     stated_grounds = json.dumps(running_context.get("stated_grounds", []))
     contested_terms = json.dumps(running_context.get("contested_terms", []))
 
+    # -- Pass 0: Fallacy scan --------------------------------------------------
+    scan_prompt = f"""Commitment extracted:
+{commitment}
+
+Pre-analysis found:
+- Stated grounds: {stated_grounds}
+- Implicit grounds: {implicit_grounds}
+
+Documents:
+{doc_for_extraction}
+
+Scan the document for the 16 reasoning patterns in your instructions. For each
+LOAD-BEARING pattern found:
+
+1. Quote the exact text. Word-for-word. It will be machine-verified.
+2. Name the claim this move is propping up.
+3. State the hidden premise in ONE sentence a board member would say out loud.
+4. For dissent-suppression patterns: recover the original objection and who raised it.
+5. Where the premise can carry a testable condition, build a candidate assumption:
+   - statement: the hidden premise, plain English, one claim
+   - falsification: "This assumption fails if..." + metric, threshold, timeframe, source
+   - confidence: respect the class ceiling (Class 1 low/unknown, Class 2 unknown,
+     Class 3 low, Class 4 medium)
+   - owner: the role best placed to watch this
+   - sourceFallacy, sourceQuote, excavationNote filled in
+   - for Class 2: dissentingView = the recovered objection and who raised it
+6. Patterns that yield no testable assumption (typically appeal to force, red
+   herring, false dilemma) are still findings: set candidate_assumption to null.
+
+Write all output fields in plain English. Short sentences. Everyday words.
+No theory vocabulary. If a board secretary would not say it out loud, rewrite it.
+If no load-bearing patterns are found, return an empty fallacy_findings list - do NOT manufacture findings.
+"""
+
+    scan_result, _, _ = await extract_structured(
+        system_prompt=system,
+        user_prompt=scan_prompt,
+        output_schema_description="""
+"fallacy_findings": [
+  {
+    "fallacy": "string - one of the 16 names, lowercase",
+    "class": "evidence-substitute | dissent-suppression | option-distortion | scale-transfer",
+    "quote": "string - VERBATIM text from the document, no paraphrase",
+    "supports_claim": "string - the claim this move props up",
+    "load_bearing": true,
+    "hidden_premise": "string - one plain sentence",
+    "suppressed_objection": "string - only for dissent-suppression",
+    "candidate_assumption": {
+      "statement": "string",
+      "owner": "string",
+      "confidence": "high|medium|low|unknown",
+      "falsification": "string",
+      "dissentingView": "string",
+      "isImplicit": true,
+      "sourceFallacy": "string",
+      "sourceQuote": "string - verbatim",
+      "excavationNote": "string"
+    }
+  }
+]
+""",
+        thinking=True,
+    )
+
+    fallacy_findings = scan_result.get("fallacy_findings", [])
+    # Keep only load-bearing findings
+    fallacy_findings = [f for f in fallacy_findings if f.get("load_bearing", False)]
+
+    # Separate candidates (have candidate_assumption) from non-candidate findings (warnings only)
+    fallacy_candidates = [
+        f["candidate_assumption"]
+        for f in fallacy_findings
+        if f.get("candidate_assumption") is not None
+    ]
+    fallacy_warnings = [
+        f"Fallacy finding ({f.get('fallacy', 'unknown')}): {f.get('supports_claim', '')[:120]} - "
+        f"no testable assumption produced (pattern still governance-relevant)"
+        for f in fallacy_findings
+        if f.get("candidate_assumption") is None
+    ]
+
     # -- Pass 1: Draft extraction ----------------------------------------------
+    fallacy_candidates_json = json.dumps(fallacy_candidates, indent=2) if fallacy_candidates else "[]"
+    fallacy_count_msg = (
+        f"{len(fallacy_findings)} load-bearing pattern(s) found "
+        f"({len(fallacy_candidates)} with candidate assumptions)"
+        if fallacy_findings else "No load-bearing patterns found"
+    )
+
     draft_prompt = f"""Commitment extracted:
 {commitment}
 
@@ -157,8 +250,12 @@ Pre-analysis found these grounds and signals:
 - Implicit grounds (taken for granted, never questioned): {implicit_grounds}
 - Contested terms (may need Meaning entries): {contested_terms}
 
+Fallacy scan: {fallacy_count_msg}
+Candidate assumptions from fallacy scan (treat as first-class candidates):
+{fallacy_candidates_json}
+
 Documents:
-{doc}
+{doc_for_extraction}
 
 Extract the ASSUMPTIONS using ARGUMENTATION ANALYSIS.
 
@@ -169,18 +266,25 @@ If fewer than 5 pass the Defeater Test, include fewer. Precision over volume.
 
 CONTENT RULES for each assumption:
 - statement: 1-2 sentences max. One claim. If it contains "and", split or prune.
-- owner: The role or person who can OBSERVE and MONITOR this assumption (not just the one who made it).
+- owner: The role or person who can OBSERVE and MONITOR this assumption.
 - falsification: 2-3 sentences MAXIMUM. Must name:
   (a) a specific metric or observable event
   (b) a specific threshold or condition
   (c) a timeframe
   (d) a data source or observable mechanism
-  If you cannot write this in 2-3 sentences, the assumption is not yet well-formed - sharpen it.
 - confidence: your assessment of how well-evidenced this assumption was AT TIME OF COMMITMENT
 - isImplicit: true if the document never states this assumption explicitly
 
+For fallacy-derived candidates you include:
+- Keep sourceFallacy, sourceQuote, excavationNote and dissentingView intact.
+- Respect the confidence ceiling: do not raise it unless the document contains
+  direct separate evidence for the premise.
+- If a candidate duplicates a conventionally extracted assumption, merge them,
+  keep the citation fields, and keep the LOWER confidence of the two.
+- Do not include a fallacy candidate just because it has a citation.
+  The Defeater Test decides, as always.
+
 INCLUDE implicit assumptions - they are often the most dangerous.
-The implicit grounds list above is your starting point for finding them.
 """
 
     draft_result, _, _ = await extract_structured(
@@ -197,7 +301,10 @@ The implicit grounds list above is your starting point for finding them.
     "confidence": "high|medium|low|unknown",
     "falsification": "string - 2-3 sentences, specific metric/threshold/timeframe/source",
     "dissentingView": "string or empty",
-    "isImplicit": false
+    "isImplicit": false,
+    "sourceFallacy": "string or empty",
+    "sourceQuote": "string or empty",
+    "excavationNote": "string or empty"
   }
 ]
 """,
@@ -207,11 +314,11 @@ The implicit grounds list above is your starting point for finding them.
     assumptions_draft = draft_result.get("assumptions", [])
 
     if not assumptions_draft:
-        return {"assumptions": []}, 0.3, ["No assumptions extracted in draft pass"]
+        return {"assumptions": []}, 0.3, ["No assumptions extracted in draft pass"] + fallacy_warnings
 
     # -- Pass 2: Adversarial QC -----------------------------------------------
     qc_result, qc_score, qc_issues = await _qc_assumptions(
-        assumptions_draft, commitment, system
+        assumptions_draft, commitment, system, doc
     )
 
     final_assumptions = qc_result.get("assumptions", assumptions_draft)
@@ -219,21 +326,43 @@ The implicit grounds list above is your starting point for finding them.
     # Enforce hard max 5, flat list only
     if len(final_assumptions) > 5:
         final_assumptions = final_assumptions[:5]
-        qc_issues.append(f"Trimmed to 5 assumptions (governance relevance rank order preserved)")
+        qc_issues.append("Trimmed to 5 assumptions (governance relevance rank order preserved)")
 
     # Ensure all parentId fields are null (flat structure)
     for a in final_assumptions:
         a["parentId"] = None
 
-    return {"assumptions": final_assumptions}, qc_score, qc_issues
+    # -- Deterministic verbatim quote verification ----------------------------
+    # Normalise whitespace in doc for matching
+    import re
+    doc_normalised = re.sub(r"\s+", " ", doc).lower()
+    for a in final_assumptions:
+        sq = a.get("sourceQuote", "")
+        if sq:
+            sq_normalised = re.sub(r"\s+", " ", sq).lower().strip()
+            if sq_normalised and sq_normalised not in doc_normalised:
+                # Quote not found verbatim - blank citation fields and add warning
+                qc_issues.append(
+                    f"{a.get('id', '?')}: sourceQuote failed verbatim verification - "
+                    f"citation fields cleared. Quote: \"{sq[:80]}...\""
+                )
+                a["sourceFallacy"] = ""
+                a["sourceQuote"] = ""
+                a["excavationNote"] = ""
+
+    # Append fallacy-finding warnings (non-candidate patterns) to issues
+    # These route to cross-stage warnings regardless of stage quality score
+    all_issues = qc_issues + fallacy_warnings
+
+    return {"assumptions": final_assumptions, "fallacy_warnings": fallacy_warnings}, qc_score, all_issues
 
 
 async def _qc_assumptions(
-    assumptions: list, commitment: str, system: str
+    assumptions: list, commitment: str, system: str, doc: str = ""
 ) -> Tuple[dict, float, List[str]]:
     """
-    Adversarial QC pass: apply 4 argumentation tests to each assumption.
-    Revise or replace any that fail.
+    Adversarial QC pass: apply 4 argumentation tests + Test 5 (citation fidelity)
+    to each assumption. Revise or replace any that fail.
     """
     qc_prompt = f"""You are performing ADVERSARIAL ARGUMENTATION CRITIQUE on a draft set of assumptions.
 
@@ -243,7 +372,7 @@ Commitment context:
 DRAFT ASSUMPTIONS (ranked A1 = highest governance consequence):
 {json.dumps(assumptions, indent=2)}
 
-Apply the FOUR ARGUMENTATION TESTS to each assumption:
+Apply the FIVE ARGUMENTATION TESTS to each assumption:
 
 TEST 1 - DEFEATER TEST:
 "If this assumption were false, does the commitment ACTUALLY require fundamental revision?"
@@ -265,12 +394,31 @@ TEST 4 - ATOMICITY TEST:
 Fail: The statement contains "and" connecting two distinct claims.
 Action: Prune to the single most consequential claim.
 
+TEST 5 - CITATION FIDELITY (fallacy-derived assumptions only - those with sourceFallacy set):
+(a) Is sourceQuote the exact text of the document? If you are not certain it is
+    word-for-word, remove all three citation fields (sourceFallacy, sourceQuote,
+    excavationNote).
+(b) Fair attribution: if the document's author read this assumption, would they
+    accept that their argument depends on it? If plausibly not, you have built a
+    straw person. Rewrite the assumption to what the author actually relies on,
+    or drop it.
+(c) Does the confidence rating respect the ceiling for its origin class?
+    Evidence substitutes (Class 1): low at most.
+    Suppressed dissent (Class 2): unknown.
+    Option/consequence distortion (Class 3): low at most.
+    Scale transfer (Class 4): medium at most.
+    Raise no ceiling unless the document separately contains direct evidence,
+    and if it does, cite that evidence in the statement instead.
+
 ADDITIONAL CHECKS:
 - Are the most DANGEROUS assumptions included? (check implicit grounds - often more consequential)
 - Re-rank by governance consequence after QC. A1 should be the one whose falsification would
   cause the most severe commitment revision.
 - Falsification conditions: are any too long (>3 sentences)? Trim them.
 - Does any falsification condition use a term that may need a Meaning entry? Flag it.
+- Language check: do all fields use plain English per the language rules? No theory
+  vocabulary (defeasible, undercutter, premise, equivocation, falsified, invalidated).
+  Falsification conditions open with "This assumption fails if...".
 
 Output the REVISED assumption set. For each change, explain why.
 Keep total at MAX 5. Flat list only - no parent/child hierarchy.
@@ -290,7 +438,10 @@ Keep total at MAX 5. Flat list only - no parent/child hierarchy.
     "confidence": "high|medium|low|unknown",
     "falsification": "string",
     "dissentingView": "string",
-    "isImplicit": false
+    "isImplicit": false,
+    "sourceFallacy": "string or empty",
+    "sourceQuote": "string or empty",
+    "excavationNote": "string or empty"
   }
 ],
 "qc_changes": ["string - description of each change made and why"],

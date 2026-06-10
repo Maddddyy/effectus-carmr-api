@@ -2,6 +2,8 @@
 
 An agentic pipeline that converts board documents into structured **CARMR** governance records using Claude Opus with extended thinking.
 
+**Current version: 1.2.0** - Fallacy-driven assumption extraction (June 2026)
+
 Live API: **https://api.effectus.madhvendra.com**  
 Interactive docs: **https://api.effectus.madhvendra.com/docs**  
 Frontend app: **https://effectus.madhvendra.com**
@@ -42,7 +44,7 @@ GET  /api/health        Health check
 Stage 0 - Ingest        Parse PDF/DOCX/TXT/transcript into clean text
 Stage 1 - Pre-Analysis  Map structural argument: claims, grounds, implicit premises
 Stage 2 - Commitment    Extract 4-part commitment statement + ownership + reversibility
-Stage 3 - Assumptions   2-pass extraction: draft + adversarial QC using 4 argumentation tests
+Stage 3 - Assumptions   3-pass extraction: fallacy scan + draft + adversarial QC (5 tests + verbatim quote verification)
 Stage 4 - Reasoning     Walton's Practical Reasoning: THEN/BECAUSE/ELABORATION blocks (max 3)
 Stage 5 - Meaning       Equivocation prevention: contested terms in falsification conditions only (max 5)
 Stage 6 - Review        Falsification-style governance triggers (max 2 time + 2 event)
@@ -64,14 +66,32 @@ This is intentional. Research everywhere produces noise. Research at these three
 
 ### Assumption quality enforcement
 
-The assumptions stage applies four formal argumentation tests to every draft assumption:
+The assumptions stage now runs three passes:
 
+**Pass 0 - Fallacy scan (new in v1.2.0)**
+Scans the document for 16 informal reasoning patterns across 4 classes:
+- **Class 1 - Evidence substitutes** (ad populum, appeal to authority, appeal to ignorance, etc.): where competitor behaviour or expert opinion stands in for actual customer/market evidence.
+- **Class 2 - Dissent suppression** (ad hominem, tu quoque, straw person, red herring): where a challenge was dismissed rather than answered. The dismissed concern is recovered as the assumption - these are often the most consequential.
+- **Class 3 - Option/consequence distortion** (false dilemma, slippery slope, appeal to force): manufactured urgency or false binaries that hide timing or alternatives claims.
+- **Class 4 - Scale transfer** (composition, division): real evidence at the wrong scale.
+
+Each finding carries a verbatim quote and a hidden-premise candidate. Candidates compete for the five assumption slots alongside conventionally extracted assumptions.
+
+**Pass 1 - Draft extraction**
+Merges fallacy-derived candidates with conventionally extracted assumptions. Ranks all by governance consequence. Enforces confidence ceilings on fallacy-derived candidates (Class 1: low; Class 2: unknown; Class 3: low; Class 4: medium).
+
+**Pass 2 - Adversarial QC (five tests)**
 1. **Defeater test** - if this premise were false, does the commitment actually fail?
 2. **Independence test** - is this premise logically distinct from every other assumption?
 3. **Testability test** - does the falsification condition name a specific metric, threshold, timeframe, and data source?
 4. **Atomicity test** - does this assumption test exactly one claim?
+5. **Citation fidelity test** (new, fallacy-derived only) - is the sourceQuote verbatim? Is the attribution fair?
 
-Parent-child structure is enforced: max 3 parent assumptions, each may have at most 1 child. Parents always outnumber children. Total cap: 5 assumptions.
+Followed by **deterministic verbatim quote verification**: after QC, `sourceQuote` on every assumption is substring-matched against the ingested document text. Any quote that fails is blanked and a warning is added - fabricated citations cannot be silently shipped.
+
+Fallacy findings that produce no surviving assumption (e.g. appeal to force, red herring) are routed directly to the record's warnings list, bypassing the quality-score gate.
+
+Flat list enforced: max 5 assumptions, no parent-child hierarchy.
 
 ---
 

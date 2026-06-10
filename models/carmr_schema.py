@@ -36,6 +36,10 @@ class Assumption(BaseModel):
     confidence: Literal["high", "medium", "low", "unknown"] = "unknown"
     falsification: str = ""
     dissentingView: str = ""
+    isImplicit: bool = False          # True if never stated explicitly in the document
+    sourceFallacy: str = ""          # e.g. "ad populum" - one of the 16 fallacy names
+    sourceQuote: str = ""            # verbatim text from the source document (code-verified)
+    excavationNote: str = ""         # 1-2 plain sentences: what the document did and what is recorded here
 
 
 # ── Reasoning (R) ────────────────────────────────────────────────────────────

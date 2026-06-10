@@ -43,6 +43,7 @@ async def run_pipeline(
     start_time = time.time()
     stage_reports = []
     research_citations = []
+    cross_warnings_from_assumptions = []  # fallacy non-candidate findings, always surfaced
 
     # -- STAGE 0: Ingest ----------------------------------------------------------
     yield sse("stage_start", {"stage": "ingest", "stage_num": 0, "total_stages": 8,
@@ -151,15 +152,21 @@ async def run_pipeline(
 
     # -- STAGE 3: Assumptions -----------------------------------------------------
     yield sse("stage_start", {"stage": "assumptions", "stage_num": 3, "total_stages": 8,
-                              "message": "Effectus Research: argumentation analysis - extracting highest-relevance defeasible premises (max 5, ranked by governance consequence)..."})
+                              "message": "Effectus Research: argumentation analysis - fallacy scan + extraction of highest-relevance defeasible premises (max 5, ranked by governance consequence)..."})
 
     yield sse("thinking", {"stage": "assumptions",
-                           "message": "Effectus Research: applying four argumentation tests to draft premises..."})
+                           "message": "Effectus Research: Pass 0 - scanning document for hidden premises via fallacy excavation..."})
+    yield sse("thinking", {"stage": "assumptions",
+                           "message": "Effectus Research: Pass 1 - merging fallacy candidates with conventionally extracted assumptions..."})
+    yield sse("thinking", {"stage": "assumptions",
+                           "message": "Effectus Research: Pass 2 - applying five argumentation tests (incl. citation fidelity) + verbatim quote verification..."})
     a_result, a_score, a_issues = await run_assumptions(running_context)
     assumptions_list = a_result.get("assumptions", [])
+    fallacy_warn_count = len(a_result.get("fallacy_warnings", []))
 
     yield sse("thinking", {"stage": "assumptions",
-                           "message": f"Adversarial QC complete: {len(assumptions_list)} assumptions, quality score {a_score:.2f}"})
+                           "message": f"Adversarial QC complete: {len(assumptions_list)} assumptions, quality score {a_score:.2f}" +
+                           (f", {fallacy_warn_count} fallacy finding(s) routed to warnings" if fallacy_warn_count else "")})
     yield sse("quality_check", {"stage": "assumptions", "quality_score": a_score,
                                  "issues": a_issues, "passed": a_score >= QUALITY_THRESHOLD})
 
@@ -195,6 +202,15 @@ async def run_pipeline(
             for a in assumptions_list
         ]
         running_context["assumptions"] = a_result
+        # Route fallacy non-candidate findings directly to cross-stage warnings
+        # (they must surface regardless of stage quality score)
+        fallacy_warnings = a_result.get("fallacy_warnings", [])
+        if fallacy_warnings:
+            cross_warnings_from_assumptions = fallacy_warnings
+        else:
+            cross_warnings_from_assumptions = []
+    else:
+        cross_warnings_from_assumptions = []
 
     stage_reports.append({"stage": "assumptions", "quality_score": a_score, "issues": a_issues})
     yield sse("stage_complete", {"stage": "assumptions", "quality_score": a_score,
@@ -311,6 +327,8 @@ async def run_pipeline(
         if r.get("quality_score", 1.0) < QUALITY_THRESHOLD:
             all_warnings.extend(r.get("issues", []))
     all_warnings.extend(cross_warnings)
+    # Fallacy non-candidate findings always surface regardless of quality score
+    all_warnings.extend(cross_warnings_from_assumptions)
 
     overall_confidence = sum(r.get("quality_score", 0.5) for r in stage_reports) / max(len(stage_reports), 1)
 

@@ -241,18 +241,26 @@ RULE: Every field must be the SHORTEST POSSIBLE statement that is also COMPLETE 
 If you cannot express an assumption in 1-2 sentences, it is not well-formed.
 If you cannot express a falsification condition in 2-3 sentences, it is too vague.
 
-### Governance Language Standards
+### Language Rules for Output Fields
 
-The output of CARMR analysis is read by boards, audit committees, and CFOs. The language
-must reflect this context:
+The output of CARMR analysis is read by boards, audit committees, and CFOs.
+Plain language that is easy to read is a governance control - if parsing a sentence
+takes effort, the check gets skipped and the assumption silently rots.
 
-USE: "The commitment is conditional upon...", "This assumption is invalidated when...",
-     "The governing board retains the right to...", "Capital deployment is subject to..."
-AVOID: Generic corporate language ("stakeholder value", "leverage synergies")
-AVOID: Probabilistic hedge language ("may", "might", "could potentially")
-AVOID: Em-dashes and informal punctuation in governance fields
-USE: Precise numerical thresholds, named data sources, specific timeframes
-USE: Active voice and unambiguous subjects ("The CFO monitors...", "The board reviews...")
+RULES (non-negotiable for every output field):
+- One idea per sentence. Aim under 25 words.
+- Everyday verbs: fails, pays, drops, signs, shows.
+- Falsification conditions open with "This assumption fails if..."
+- A person named by role does each thing: "The sales director tracks this."
+- Never use these words in output: defeasible, undercutter, premise, equivocation,
+  falsified, invalidated, presumed, pursuant.
+- Keep every number, date, and named source exact. Plain is not vague.
+- No filler: "it is important to note", "in order to", "going forward".
+- No em-dashes. Use a hyphen or start a new sentence.
+- No probabilistic hedges ("may", "might", "could potentially") in governance fields.
+- Active voice and unambiguous subjects: "The CFO monitors...", "The board reviews..."
+- The test: would a board secretary say this sentence out loud in a meeting?
+  If not, rewrite it.
 """
 
 CARMR_FRAMEWORK = """
@@ -353,9 +361,93 @@ gapJustification should read:
 """
 
 
+FALLACY_EXCAVATION = """
+## FALLACY EXCAVATION - FINDING THE ASSUMPTIONS NOBODY WROTE DOWN
+
+The most dangerous assumptions in a board document are not stated badly. They are
+not stated at all. They hide inside HOW the document argues. An informal fallacy
+is a load-bearing move: the author needed evidence, did not have it, and reached
+for something that feels like evidence. The fallacy marks the exact spot where a
+hidden assumption lives.
+
+Your job is NOT to grade the document's logic or accuse anyone of bad reasoning.
+Your job is to find these moves, quote them, and dig out the untested claim
+underneath each one.
+
+### THE 16 PATTERNS, IN 4 CLASSES
+
+CLASS 1 - EVIDENCE SUBSTITUTES. The move pretends to be evidence for a factual
+claim. The hidden assumption is that factual claim, still untested.
+Excavation question: "What would have to be true for this to count as real evidence?"
+
+- hasty generalization / false cause: small sample treated as proof at scale;
+  "B followed A, so A caused B". Hidden: the sample is representative / the link is causal.
+- ad populum: "every competitor is doing it". Hidden: wide adoption is evidence of
+  demand and returns in OUR market.
+- appeal to snobbery / vanity: "top-tier firms use it". Hidden: their conditions hold for us.
+- appeal to inappropriate authority: an authority outside their field, or with an
+  interest in the answer. Hidden: the claim is true for our market anyway.
+- appeal to ignorance: "no one has shown it will fail". Hidden: the positive claim,
+  with zero supporting evidence by construction. Confidence: unknown, always.
+- appeal to pity / emotion: "the team worked so hard". Hidden: remaining spend will
+  return more than the alternatives. Past effort is standing in for future value.
+- circular argument: the conclusion restated as its own support ("sound because it
+  is in the approved plan"). Hidden: nothing - the claim has NO independent support.
+  Record the claim, confidence unknown, and flag the missing justification.
+
+CLASS 2 - DISSENT SUPPRESSION. A challenge was removed instead of answered:
+the person attacked (ad hominem abusive), their motives attacked (ad hominem
+circumstantial), their own record used against them (tu quoque), their objection
+distorted (straw person), or the question dodged (red herring).
+The hidden assumption is always: "the dismissed concern is wrong."
+Excavation: recover the ORIGINAL objection, state it fairly, and turn the claim it
+challenged into the assumption. Put the objection and who raised it in dissentingView.
+These are often the best candidates in the document - an informed insider thought
+the point was worth raising. Confidence: unknown, always.
+
+CLASS 3 - OPTION AND CONSEQUENCE DISTORTION. The decision space is misrepresented.
+- false dilemma: "fund fully now or abandon". Hidden: no staged, partial, or
+  partnered route works. Also re-check reversibility: false dilemmas present
+  reversible commitments as irreversible.
+- slippery slope: "delay a quarter, lose the market forever". Hidden: the window
+  closes by a specific near date and late entry cannot recover. Convert the
+  catastrophe into a DATED window claim.
+- appeal to force: "approve, or be seen as not strategic". Usually yields a WARNING,
+  not an assumption: record that the decision was pressured, and note that the
+  substantive claim has only whatever evidence it has.
+
+CLASS 4 - SCALE TRANSFER. A real result at one scale asserted at another.
+- composition: one unit's gain claimed for the whole company.
+- division: the group's aggregate health claimed for every unit.
+Hidden: the conditions that produced the local result hold at the target scale.
+Excavation: NAME those conditions; the assumption is that they hold elsewhere.
+Confidence: medium at most - the evidence is real but at the wrong scale.
+
+### RULES
+
+1. QUOTE VERBATIM. Every finding carries the exact words from the document.
+   A paraphrased quote is a discarded finding. The quote will be machine-checked
+   against the source text; an inexact quote destroys the citation.
+2. LOAD-BEARING ONLY. Report a pattern only if it supports a claim the commitment
+   depends on. A rhetorical flourish in the background section is not a finding.
+3. NEUTRAL LANGUAGE. Describe the pattern, never the person. Write "the paper
+   supports this by pointing at competitors rather than customers", never
+   "the sponsor commits a fallacy".
+4. NO STRAW PERSONS OF YOUR OWN. The excavated premise must be one the author,
+   shown it, would accept their argument depends on. If not, you have distorted
+   them - exactly the error you are detecting.
+5. NO QUOTAS. Some documents argue cleanly and yield zero findings. Do not
+   manufacture findings. An empty list is a valid, good result.
+6. LABELS ARE POINTERS. If a move sits between two patterns, pick the closest
+   and move on. The excavated premise is the product, not the taxonomy.
+"""
+
+
 def get_stage_system_prompt(stage_name: str, stage_description: str) -> str:
     # Include reasoning weight examples only for the Reasoning stage
     reasoning_supplement = REASONING_WEIGHT_EXAMPLES if "Reasoning" in stage_name else ""
+    # Include fallacy excavation only for the Assumptions stage
+    fallacy_supplement = FALLACY_EXCAVATION if "Assumptions" in stage_name else ""
 
     return f"""You are an expert in argumentation technology and Strategic Validity Management (SVM),
 operating as the analytical engine of Effectus Research. You have deep knowledge of formal
@@ -370,12 +462,6 @@ Short, precise, testable. Every claim is a governed proposition with an explicit
 Every falsification condition is a Pollock-style undercutter with named metric, threshold,
 timeframe, and data source.
 
-LANGUAGE RULES (non-negotiable):
-- No em-dashes. Use a hyphen (-) or a new sentence.
-- No vague probabilistic hedges ("may", "might", "could potentially") in governance fields.
-- Every falsification condition must be binary: it has fired or it has not.
-- Output fields read by boards must use formal governance register.
-
 {ARGUMENTATION_THEORY}
 
 {CARMR_FRAMEWORK}
@@ -383,6 +469,8 @@ LANGUAGE RULES (non-negotiable):
 {REFERENCE_CASES}
 
 {reasoning_supplement}
+
+{fallacy_supplement}
 
 Current pipeline stage: {stage_name}
 """
