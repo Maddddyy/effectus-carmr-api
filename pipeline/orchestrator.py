@@ -19,10 +19,12 @@ from .stages import (
     run_meaning,
     run_review,
     run_cross_validation,
+    MAX_MEANING_TERMS,
 )
 from .llm_client import research_and_revise
 from models.carmr_schema import CARMRRecord, ExtractionResult, RecordData, Assumption, ReasoningBlock, MeaningTerm, ReviewTrigger
-from research.web_research import research_commitment, research_assumption, research_term_definition
+from research.web_research import research_commitment, research_assumption
+# research_term_definition removed: Meaning stage no longer uses external web search (v1.3.0)
 from prompts.carmr_framework import get_stage_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -244,43 +246,76 @@ async def run_pipeline(
 
     # -- STAGE 5: Meaning ---------------------------------------------------------
     yield sse("stage_start", {"stage": "meaning", "stage_num": 5, "total_stages": 8,
-                              "message": "Effectus Research: equivocation prevention - identifying contested terms in governance-critical clauses..."})
+                              "message": "Effectus Research: definition-in-use detection - "
+                                         "scanning for key terms used with conflicting meanings..."})
 
     yield sse("thinking", {"stage": "meaning",
-                           "message": "Effectus Research: identifying terms whose drift would break falsification conditions..."})
+                           "message": "Effectus Research: identifying governance-critical terms "
+                                      "and extracting verbatim evidence quotes..."})
     m_result, m_score, m_issues = await run_meaning(running_context)
-    meaning_terms = m_result.get("meaningTerms", [])[:5]  # enforce max 5
+    meaning_terms_raw = m_result.get("meaningTerms", [])[:MAX_MEANING_TERMS]
 
-    # Research Point 3: validate contested definitions
-    for mt in meaning_terms[:2]:  # Max 2 research calls
-        term = mt.get("term", "")
-        yield sse("research", {"stage": "meaning",
-                               "query": f"'{term}' industry and regulatory definition",
-                               "status": "searching..."})
-        try:
-            sector = carmr.recordData.portfolio or carmr.recordData.title[:40]
-            finding, finding_urls = await research_term_definition(term, sector)
-            if finding and "[No research" not in finding:
-                for url in finding_urls:
-                    research_citations.append(url)
-                yield sse("research", {"stage": "meaning",
-                                       "query": f"'{term}' definition",
-                                       "finding": finding[:400],
-                                       "sources": finding_urls[:3],
-                                       "status": "complete"})
-        except Exception as e:
-            logger.warning(f"Term research failed: {e}")
+    # Deterministic processing: quote verification, merge, classify, divergence, legacy fields
+    from pipeline.semantic_divergence import process_meaning_terms
+    meaning_terms_processed, divergence_issues = process_meaning_terms(
+        meaning_terms_raw, running_context.get("doc_context", "")
+    )
+    m_issues = m_issues + divergence_issues
+
+    # Emit thinking with conflict summary
+    conflict_terms = [t.get("term", "?") for t in meaning_terms_processed
+                      if t.get("definitionCardinality") == "multiple"]
+    undefined_terms = [t.get("term", "?") for t in meaning_terms_processed
+                       if t.get("scenarioType") == "undefined_term"]
+    thinking_parts = [f"{len(meaning_terms_processed)} term(s) processed"]
+    if conflict_terms:
+        thinking_parts.append(f"conflicts detected: {', '.join(conflict_terms)}")
+    if undefined_terms:
+        thinking_parts.append(f"undefined: {', '.join(undefined_terms)}")
+    yield sse("thinking", {"stage": "meaning",
+                           "message": "Effectus Research: " + "; ".join(thinking_parts)})
+
+    yield sse("quality_check", {"stage": "meaning", "quality_score": m_score,
+                                 "issues": m_issues, "passed": m_score >= QUALITY_THRESHOLD})
 
     if m_result:
-        carmr.meaningTerms = [
-            MeaningTerm(**{k: v for k, v in mt.items() if k in MeaningTerm.model_fields})
-            for mt in meaning_terms
-        ]
+        from models.carmr_schema import DefinitionInUse, Divergence as DivergenceModel
+        built_terms = []
+        for mt in meaning_terms_processed:
+            # Build nested DefinitionInUse objects
+            defs_built = [
+                DefinitionInUse(**{k: v for k, v in d.items() if k in DefinitionInUse.model_fields})
+                for d in mt.get("definitionsInUse", [])
+            ]
+            # Build Divergence object if present
+            div_raw = mt.get("divergence")
+            div_built = None
+            if div_raw is not None:
+                try:
+                    div_built = DivergenceModel(**{k: v for k, v in div_raw.items()
+                                                   if k in DivergenceModel.model_fields})
+                except Exception as e:
+                    logger.warning(f"Meaning: could not build Divergence object: {e}")
+                    div_built = None
+
+            # Build MeaningTerm with nested objects injected
+            mt_filtered = {k: v for k, v in mt.items() if k in MeaningTerm.model_fields
+                           and k not in ("definitionsInUse", "divergence")}
+            term_obj = MeaningTerm(**mt_filtered)
+            term_obj.definitionsInUse = defs_built
+            term_obj.divergence = div_built
+            built_terms.append(term_obj)
+
+        carmr.meaningTerms = built_terms
         running_context["meaning"] = m_result
 
     stage_reports.append({"stage": "meaning", "quality_score": m_score, "issues": m_issues})
     yield sse("stage_complete", {"stage": "meaning", "quality_score": m_score,
-                                  "partial_result": {"terms": [t.term for t in carmr.meaningTerms]},
+                                  "partial_result": {
+                                      "terms": [t.term for t in carmr.meaningTerms],
+                                      "conflicts": [t.term for t in carmr.meaningTerms
+                                                    if t.definitionCardinality == "multiple"],
+                                  },
                                   "warnings": m_issues if m_score < QUALITY_THRESHOLD else []})
 
     # -- STAGE 6: Review Triggers -------------------------------------------------

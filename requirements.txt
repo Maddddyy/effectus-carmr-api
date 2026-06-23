@@ -1,0 +1,44 @@
+# Effectus CARMR Extraction API - pinned dependencies
+# Generated 2026-06-23 after v1.3.0 Meaning stage revamp
+
+# Core API
+aiofiles==25.1.0
+anthropic==0.96.0
+fastapi==0.136.0
+httpx==0.28.1
+pydantic==2.13.3
+pydantic_core==2.46.3
+python-dotenv==1.2.2
+uvicorn==0.46.0
+
+# Document parsing
+PyMuPDF==1.27.2.2
+python-docx==1.2.0
+
+# Semantic divergence (Meaning stage v2.0)
+# NOTE: torch CPU wheel adds ~700MB to install size.
+# The pipeline has a lexical-Jaccard fallback if torch/sentence-transformers
+# cannot be loaded, so the API will still function if this is not installed.
+sentence-transformers==5.6.0
+torch==2.12.1
+transformers==5.12.1
+tokenizers==0.22.2
+safetensors==0.8.0
+huggingface_hub==1.20.1
+hf-xet==1.5.1
+
+# sentence-transformers transitive dependencies
+filelock==3.29.4
+fsspec==2026.6.0
+joblib==1.5.3
+mpmath==1.3.0
+narwhals==2.22.1
+networkx==3.6.1
+numpy==2.5.0
+packaging==26.2
+regex==2026.5.9
+scikit-learn==1.9.0
+scipy==1.18.0
+sympy==1.14.0
+threadpoolctl==3.6.0
+tqdm==4.68.3

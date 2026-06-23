@@ -64,10 +64,42 @@ class ReasoningBlock(BaseModel):
 
 # ── Meaning (M) ──────────────────────────────────────────────────────────────
 
+class DefinitionInUse(BaseModel):
+    defId: str = ""                              # "D1", "D2", ... in document order
+    shortName: str = ""                          # 2-4 word memorable label
+    definition: str = ""                         # operative meaning, 1-2 sentences
+    modality: Literal["explicit", "implicit"] = "explicit"
+    evidenceQuote: str = ""                      # verbatim span, code-verified
+    location: str = ""                           # short human pointer
+    articulatedBy: str = ""                      # role/person if identifiable
+
+
+class Divergence(BaseModel):
+    metric: Literal["divergence", "variance"]    # "divergence" for 2 defs, "variance" for 3+
+    score: float                                 # 0.0-1.0, rounded to 3 dp, computed in code
+    band: Literal["low", "moderate", "high"]     # deterministic from score
+    method: str                                  # audit string, e.g. "cosine|all-MiniLM-L6-v2|5.6.0"
+    mostDivergentPair: List[str] = Field(default_factory=list)   # e.g. ["D1", "D2"]
+    pairwise: List[dict] = Field(default_factory=list)           # populated for 3+ defs only
+
+
 class MeaningTerm(BaseModel):
     id: str
     term: str = ""
     autoDetected: bool = True
+    # --- new structured fields (v1.3.0) ---
+    definitionsInUse: List[DefinitionInUse] = Field(default_factory=list)
+    definitionCardinality: Literal["none", "single", "multiple"] = "single"
+    definitionModality: Literal["explicit", "implicit", "mixed", "none"] = "explicit"
+    scenarioType: Literal[
+        "defined_term", "assumed_term", "contested_meanings",
+        "classic_ambiguity", "hidden_divergence", "undefined_term"
+    ] = "defined_term"
+    scenarioName: str = ""                        # human label, e.g. "Contested Meanings"
+    divergence: Optional[Divergence] = None       # null unless cardinality == "multiple"
+    usageQuotes: List[str] = Field(default_factory=list)  # only for undefined_term
+    usageCount: int = 0
+    # --- legacy fields, kept for FE backward compatibility ---
     contextQuote: str = ""
     definition: str = ""
     driftRisk: str = ""

@@ -25,15 +25,16 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "50"))
 app = FastAPI(
     title="Effectus CARMR Extraction API",
     description=(
-        "Agentic pipeline: board documents → structured CARMR records. "
-        "v1.2.0 adds fallacy-driven assumption extraction: a three-pass assumptions stage "
-        "(fallacy scan → draft → adversarial QC with citation fidelity test) that surfaces "
-        "hidden premises the document relies on but never states. "
-        "Assumption model extended with isImplicit, sourceFallacy, sourceQuote, excavationNote fields."
+        "Agentic pipeline: board documents to structured CARMR records. "
+        "v1.2.0 adds fallacy-driven assumption extraction (three-pass assumptions stage). "
+        "v1.3.0 revamps Stage 5 (Meaning): intra-document definition-in-use detection with "
+        "four scenarios (Contested Meanings, Classic Ambiguity, Hidden Divergence, Undefined Term), "
+        "deterministic semantic divergence scoring via sentence-transformers with lexical fallback, "
+        "and verbatim evidence quote verification. External web search removed from Meaning stage. "
+        "MeaningTerm model extended with definitionsInUse, divergence, scenarioType, and related fields."
     ),
-    version="1.2.0",
+    version="1.3.0",
 )
-
 # CORS - allow FE origin
 app.add_middleware(
     CORSMiddleware,

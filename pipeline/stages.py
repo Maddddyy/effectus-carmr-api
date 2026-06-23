@@ -694,65 +694,87 @@ Deduct per failure: Test 1 = 0.25, Test 2 = 0.20, Test 3 = 0.15, Test 4 = 0.25, 
 
 # ── Stage 5: Meaning (M) ──────────────────────────────────────────────────────
 
+MAX_MEANING_TERMS = 5  # mirror of semantic_divergence.MAX_TERMS
+
+
 async def run_meaning(running_context: dict) -> Tuple[dict, float, List[str]]:
+    """
+    Definition-in-Use Detection (v1.3.0).
+    Detects key terms used with more than one meaning within the uploaded document set.
+    Scoring (divergence/variance) is NOT done here - it is deterministic code in
+    pipeline/semantic_divergence.py called by the orchestrator after this function.
+    """
     system = get_stage_system_prompt(
-        "Meaning Extraction (M) - Equivocation Prevention",
-        "Identify only terms where semantic drift would create an equivocation fallacy. "
-        "If the term's definition is clear and uncontested in context, do not include it. "
-        "Target 3-5 terms. Cover all falsification-critical terms but stop at 5."
+        "Meaning (M) - Definition-in-Use Detection",
+        "Detect key terms that are used with more than one meaning (definition-in-use) "
+        "within this document set. Quote the evidence verbatim. "
+        "Do not assign any numeric score - scoring is done by code."
     )
 
-    commitment = json.dumps(running_context.get("commitment", {}), indent=2)
+    # Pull all inputs the prompt needs
+    doc_context = running_context.get("doc_context", "")
+    doc_for_prompt = doc_context[:60000]   # leave headroom under 80k cap
+
     assumptions_raw = running_context.get("assumptions", {})
     assumptions = assumptions_raw.get("assumptions", []) if isinstance(assumptions_raw, dict) else []
     reasoning_raw = running_context.get("reasoning", {})
     reasoning = reasoning_raw.get("reasoningBlocks", []) if isinstance(reasoning_raw, dict) else []
     contested_terms = running_context.get("contested_terms", [])
 
-    # Compile all text that uses potentially contested terms
+    # Build seed text from falsification conditions and reasoning warrants (same as before)
     all_falsification = " ".join(a.get("falsification", "") for a in assumptions)
     all_reasoning = " ".join(rb.get("because", "") + " " + rb.get("then", "") for rb in reasoning)
 
-    prompt = f"""Commitment:
-{commitment}
+    prompt = f"""You are detecting DEFINITION-IN-USE conflicts within a single document set.
 
-Assumptions (pay attention to falsification conditions - terms used there are highest priority):
-{json.dumps(assumptions, indent=2)}
+A "definition-in-use" is the operative meaning a term actually carries in a
+passage, shown by how it is used there. It is NOT a dictionary definition and
+NOT an external or regulatory definition. Work only from the text provided.
 
-Reasoning blocks:
-{json.dumps(reasoning, indent=2)}
+DOCUMENT SET (all files for this decision, combined):
+{doc_for_prompt}
 
-Pre-analysis flagged these contested terms: {json.dumps(contested_terms)}
+Seed candidate terms (from earlier stages - treat as hints, not a fixed list):
+- Contested terms: {json.dumps(contested_terms)}
+- Terms used in falsification conditions: {all_falsification[:1000]}
+- Terms used in reasoning warrants: {all_reasoning[:1000]}
 
-Identify MEANING TERMS - but only where EQUIVOCATION is a genuine governance risk.
+TASK
+1. Identify KEY TERMS: words or short phrases used with governance or strategic
+   weight (a term a board decision depends on). Ignore ordinary language.
+2. For EACH key term, scan EVERY occurrence in the document set and extract each
+   DISTINCT definition-in-use. Two passages are distinct only if they express a
+   genuinely different meaning. Rewording the same meaning is NOT distinct - record
+   it once.
+3. For each distinct definition-in-use, record:
+   - shortName: a 2 to 4 word memorable label that captures the meaning
+     (example: "Occupancy Threshold", "Net Revenue Threshold"). Must be
+     human-readable and specific to this meaning.
+   - definition: one or two sentences stating the operative meaning in plain words.
+   - modality: "explicit" if the document states the definition directly;
+     "implicit" if it is only implied by surrounding operational detail.
+   - evidenceQuote: a VERBATIM span copied exactly from the document set that
+     justifies this definition-in-use. For explicit, quote the stated definition.
+     For implicit, quote the operational passage that implies the meaning. The
+     quote MUST appear character-for-character in the document set.
+   - location: a short human pointer (example: "Financial Targets section" or
+     "CFO, board dialogue").
+   - articulatedBy: the person or role if identifiable from a transcript
+     (example: "CEO", "CFO"), else "".
+4. If a key term is used but is NEVER defined, explicitly or implicitly, record it
+   with an EMPTY definitions list and instead provide usageQuotes: up to 6 verbatim
+   quotes showing the term in use, and usageCount: the total number of occurrences.
 
-INCLUSION CRITERIA (must meet at least one):
-1. The term appears in a FALSIFICATION CONDITION - if its meaning drifts, the condition
-   becomes unmeasurable and governance breaks down.
-2. The term is used in the WARRANT of a reasoning block - if it shifts meaning, the
-   causal mechanism no longer holds.
-3. The term has documented CONTESTED USAGE in the relevant industry or regulatory context.
-
-EXCLUSION CRITERIA (do not include if):
-- The term's meaning is clear and uncontested in this specific context
-- The term appears only in narrative sections, not in governance-critical clauses
-- Including it would be comprehensive but not consequential
-
-For each included term:
-- term: MUST be a word or phrase that appears VERBATIM (or near-verbatim) in the source
-  documents. Do NOT invent labels or use terms from internet research. If the document uses
-  "anchor client", use "anchor client" - not "major customer" or "enterprise buyer".
-- contextQuote: The EXACT phrase from the documents where this term appears in a
-  governance-critical role (falsification condition or reasoning warrant).
-- definition: OPERATIONAL definition - specific enough to CHECK. Not a dictionary definition.
-  "A single enterprise customer committing to ≥€5M ARR minimum 3-year contract" not
-  "a major customer."
-- driftRisk: Name the SPECIFIC GOVERNANCE FAILURE. Which falsification condition becomes
-  unmeasurable? Which argument in the reasoning collapses?
-
-Target 3-5 terms. Include all terms where semantic drift would break a falsification condition
-or undercut a reasoning warrant. If only 2-3 terms genuinely qualify, use 2-3.
-Do not pad to reach 5 - but aim for at least 3 to ensure the critical terms are covered.
+RULES
+- Never invent a definition or a quote. If you cannot quote it, do not record it.
+- Do NOT assign any number, score, percentage, or "variance" - leave all scoring
+  to the downstream system. You only extract.
+- Select the {MAX_MEANING_TERMS} most governance-significant key terms. Prefer terms
+  that carry conflicting meanings over terms with a single clear meaning, but include
+  single-meaning key terms too where they are decision-critical.
+- Order definitionsInUse by where they first appear in the document (earliest first).
+- Use plain English. Short sentences. No theory vocabulary.
+- No em-dashes. Use a hyphen or start a new sentence.
 """
 
     return await extract_structured(
@@ -762,11 +784,21 @@ Do not pad to reach 5 - but aim for at least 3 to ensure the critical terms are 
 "meaningTerms": [
   {
     "id": "M1",
-    "term": "string - exact term",
+    "term": "string - the exact key term as used in the document",
     "autoDetected": true,
-    "contextQuote": "string - exact quote where this term has governance weight",
-    "definition": "string - operational, specific, checkable",
-    "driftRisk": "string - names the specific condition/argument that breaks if this term drifts"
+    "definitionsInUse": [
+      {
+        "defId": "D1",
+        "shortName": "string - 2 to 4 word memorable label",
+        "definition": "string - 1 to 2 sentences, the operative meaning",
+        "modality": "explicit | implicit",
+        "evidenceQuote": "string - verbatim span from the document set",
+        "location": "string - short human pointer",
+        "articulatedBy": "string - role or person, or empty"
+      }
+    ],
+    "usageQuotes": ["string - verbatim, ONLY when definitionsInUse is empty"],
+    "usageCount": 0
   }
 ]
 """,
@@ -916,12 +948,22 @@ async def run_cross_validation(running_context: dict, carmr) -> dict:
         elif len(a.falsification.split()) < 15:
             warnings.append(f"{a.id}: falsification condition may be too brief - verify it names metric/threshold/timeframe")
 
-    # Check meaning covers falsification terms
-    meaning_term_words = {t.term.lower() for t in carmr.meaningTerms}
-    all_falsification_text = " ".join(a.falsification.lower() for a in carmr.assumptions)
-    for term in meaning_term_words:
-        if term not in all_falsification_text:
-            warnings.append(f"Meaning term '{term}' not referenced in any falsification condition - review necessity")
+    # Cross-validation Meaning checks (v1.3.0 - definition-in-use detection)
+    for mt in carmr.meaningTerms:
+        if mt.definitionCardinality == "multiple":
+            n = len(mt.definitionsInUse)
+            score_str = ""
+            if mt.divergence:
+                score_str = f" Divergence {mt.divergence.score} ({mt.divergence.band})."
+            warnings.append(
+                f"Meaning term '{mt.term}': {n} conflicting definitions-in-use detected "
+                f"({mt.scenarioName}); decision is not anchored to a single meaning.{score_str}"
+            )
+        elif mt.scenarioType == "undefined_term":
+            warnings.append(
+                f"Meaning term '{mt.term}': used {mt.usageCount} times but never defined; "
+                f"meaning is unconstrained."
+            )
 
     # Check review triggers
     has_time = any(rt.type == "time" for rt in carmr.reviewTriggers)
@@ -1001,7 +1043,25 @@ def _compute_cis(carmr) -> dict:
         m_score = 40
     else:
         def complete_term(t):
-            return non_empty(t.term) and non_empty(t.definition) and non_empty(t.driftRisk)
+            # v1.3.0: a term is complete if term is set, scenarioType is set, and
+            # either: (single/multiple) every definition has shortName+definition+evidenceQuote,
+            # or: (none/undefined_term) usageQuotes is non-empty.
+            if not non_empty(t.term):
+                return False
+            if not non_empty(t.scenarioType):
+                return False
+            if t.definitionCardinality in ("single", "multiple"):
+                defs = t.definitionsInUse if hasattr(t, "definitionsInUse") else []
+                return bool(defs) and all(
+                    non_empty(getattr(d, "shortName", "")) and
+                    non_empty(getattr(d, "definition", "")) and
+                    non_empty(getattr(d, "evidenceQuote", ""))
+                    for d in defs
+                )
+            elif t.definitionCardinality == "none":
+                uq = t.usageQuotes if hasattr(t, "usageQuotes") else []
+                return bool(uq)
+            return False
         m_score = clamp((sum(1 for t in terms if complete_term(t)) / len(terms)) * 100)
 
     time_triggers = [t for t in triggers if t.type == "time"]
